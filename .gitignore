@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.env
+
+# Середовища Python
+venv/
+.venv/
+
+# База даних (не комітимо — вона генерується автоматично)
+*.db
+*.db-shm
+*.db-wal
+
+# Сесія Pyrogram
+*.session
+*.session-journal
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Build outputs
+build/
+dist/
+
+# Лог файли
+*.log
+*.pid
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Runtime storage generated on user machines
+tokens.json
+template_files/
+auto_message_files/
+import_cache/
+sticker_cache/
