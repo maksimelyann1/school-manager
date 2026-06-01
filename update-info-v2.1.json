@@ -1,12 +1,13 @@
 {
   "latest_version": "2.1",
+  "download_url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.1/SchoolManager_Setup.exe",
   "changelog": "Додано перенесення уроків у звітах батькам.\nПокращено popover дати й часу для перенесення уроку.\nПокращено Magic-редагування тексту через Google AI.\nОновлено емоджі, наліпки, вставку файлів і контекстне меню.\nПокращено підготовку збірок Windows і macOS.",
   "downloads": {
     "windows": {
-      "url": "https://github.com/maksimelyann1/school-manager/releases/download/v2.1/SchoolManager_Setup.exe"
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.1/SchoolManager_Setup.exe"
     },
     "macos": {
-      "url": "https://github.com/maksimelyann1/school-manager/releases/download/v2.1/SchoolManager-macOS-unsigned.dmg"
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.1/SchoolManager-macOS-unsigned.dmg"
     }
   }
 }
