@@ -23,6 +23,42 @@ const DAYS = [
     { value: 'sun', label: 'неділя' }
 ]
 
+const DEFAULT_ABSENT_FOLLOWUP_TEMPLATE = `Вітаю, шановні батьки!😊
+
+👋Чекаємо на урок наших розумників у {next_lesson_day} о {next_lesson_time_dot} ⏰ за графіком !!
+
+❗️На відпрацювання об {makeup_time}🔔 {absents}!
+
+✅Прошу поставте ➕ або лайк 👍, що ознайомились та будете на уроці👩‍💻
+
+✅ Прохання попереджати, якщо когось з дітей не буде😊
+
+Всім гарних вихідних 🍰☕️`
+
+const DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE = `Вітаю, шановні батьки!😊
+
+👋Чекаємо на урок наших розумників завтра у {next_lesson_day} о {next_lesson_time_dot} ⏰ за графіком !!
+
+🇺🇦 Одягайте вишиванку або білу футболку - буде тематичний урок.
+
+✅Прошу поставте ➕ або лайк 👍, що ознайомились та будете  на  уроці👩‍💻
+
+✅ Прохання попереджати, якщо когось з дітей не буде😊
+
+Всім гарних вихідних  🦋`
+
+function TrashIcon() {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M19 6l-1 14H6L5 6" />
+            <path d="M10 11v5" />
+            <path d="M14 11v5" />
+        </svg>
+    )
+}
+
 function AutoMessages() {
     const [autoMessages, setAutoMessages] = useState([])
     const [groups, setGroups] = useState([])
@@ -36,6 +72,10 @@ function AutoMessages() {
     const [selectedStickers, setSelectedStickers] = useState([])
     const [isDragging, setIsDragging] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
+    const [followupSettings, setFollowupSettings] = useState(null)
+    const [isSavingFollowupSettings, setIsSavingFollowupSettings] = useState(false)
+    const [editingId, setEditingId] = useState(null)
+    const [editDraft, setEditDraft] = useState(null)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
     const dropZoneRef = useRef(null)
@@ -59,6 +99,7 @@ function AutoMessages() {
     useEffect(() => {
         fetchData()
         fetchTemplates()
+        fetchFollowupSettings()
     }, [])
 
     useEffect(() => {
@@ -105,6 +146,18 @@ function AutoMessages() {
         }
     }
 
+    const fetchFollowupSettings = async () => {
+        try {
+            const response = await fetch(`${API_URL}/parents-report/settings`)
+            const data = await response.json()
+            if (response.ok) {
+                setFollowupSettings(data)
+            }
+        } catch (error) {
+            console.error('Помилка завантаження налаштувань відпрацювання:', error)
+        }
+    }
+
     const resetForm = () => {
         setFormData({
             group_id: '',
@@ -123,6 +176,50 @@ function AutoMessages() {
         if (fileInputRef.current) {
             fileInputRef.current.value = ''
         }
+    }
+
+    const updateFollowupSetting = (key, value) => {
+        setFollowupSettings(prev => ({ ...(prev || {}), [key]: value }))
+    }
+
+    const saveFollowupSettings = async () => {
+        if (!followupSettings) return
+        setIsSavingFollowupSettings(true)
+        try {
+            const payload = {
+                absent_followup_enabled: !!followupSettings.absent_followup_enabled,
+                absent_followup_schedule_mode: followupSettings.absent_followup_schedule_mode || 'after_report',
+                absent_followup_delay_minutes: Number(followupSettings.absent_followup_delay_minutes ?? 5),
+                absent_followup_before_lesson_time: followupSettings.absent_followup_before_lesson_time || '20:00',
+                absent_followup_template: followupSettings.absent_followup_template || '',
+                no_absents_followup_template: followupSettings.no_absents_followup_template || ''
+            }
+            const response = await fetch(`${API_URL}/parents-report/settings`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            const data = await response.json().catch(() => ({}))
+            if (!response.ok) {
+                throw new Error(data.detail || 'Не вдалося зберегти налаштування')
+            }
+            setFollowupSettings(data)
+            setAlert({ type: 'success', text: 'Налаштування відпрацювання збережено' })
+        } catch (error) {
+            setAlert({ type: 'error', text: error.message || 'Помилка збереження налаштувань' })
+        } finally {
+            setIsSavingFollowupSettings(false)
+        }
+    }
+
+    const resetFollowupTemplate = (key) => {
+        const template = key === 'no_absents_followup_template'
+            ? DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE
+            : DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
+        setFollowupSettings(prev => ({
+            ...(prev || {}),
+            [key]: template
+        }))
     }
 
     const toggleForm = () => {
@@ -491,19 +588,70 @@ function AutoMessages() {
         if (!confirm('Видалити це автоповідомлення?')) return
 
         try {
-            await fetch(`${API_URL}/auto-messages/${id}`, { method: 'DELETE' })
+            const response = await fetch(`${API_URL}/auto-messages/${id}`, { method: 'DELETE' })
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}))
+                throw new Error(data.detail || 'Помилка видалення')
+            }
             fetchData()
+            setAlert({ type: 'success', text: 'Автоповідомлення видалено' })
         } catch (error) {
-            setAlert({ type: 'error', text: 'Помилка видалення' })
+            setAlert({ type: 'error', text: error.message || 'Помилка видалення' })
         }
     }
 
     const toggleAutoMessage = async (id) => {
         try {
-            await fetch(`${API_URL}/auto-messages/${id}/toggle`, { method: 'PUT' })
+            const response = await fetch(`${API_URL}/auto-messages/${id}/toggle`, { method: 'PUT' })
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}))
+                throw new Error(data.detail || 'Помилка')
+            }
             fetchData()
+            setAlert({ type: 'success', text: 'Статус автоповідомлення змінено' })
         } catch (error) {
-            setAlert({ type: 'error', text: 'Помилка' })
+            setAlert({ type: 'error', text: error.message || 'Помилка' })
+        }
+    }
+
+    const startEditAutoMessage = (msg) => {
+        setEditingId(msg.id)
+        setEditDraft({
+            message: msg.message || '',
+            send_day: msg.send_day || 'mon',
+            send_time: msg.send_time || '18:00',
+            repeat_count: msg.repeat_count ?? 1
+        })
+    }
+
+    const cancelEditAutoMessage = () => {
+        setEditingId(null)
+        setEditDraft(null)
+    }
+
+    const saveAutoMessageEdit = async (id) => {
+        if (!editDraft) return
+        try {
+            const response = await fetch(`${API_URL}/auto-messages/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: editDraft.message,
+                    send_day: editDraft.send_day,
+                    send_time: editDraft.send_time,
+                    repeat_count: Number(editDraft.repeat_count ?? 1)
+                })
+            })
+            const data = await response.json().catch(() => ({}))
+            if (!response.ok) {
+                throw new Error(data.detail || 'Не вдалося оновити автоповідомлення')
+            }
+            setEditingId(null)
+            setEditDraft(null)
+            await fetchData()
+            setAlert({ type: 'success', text: 'Автоповідомлення оновлено' })
+        } catch (error) {
+            setAlert({ type: 'error', text: error.message || 'Помилка оновлення' })
         }
     }
 
@@ -572,6 +720,124 @@ function AutoMessages() {
             {alert && (
                 <div className={`alert alert-${alert.type}`}>
                     {alert.text}
+                </div>
+            )}
+
+            {followupSettings && (
+                <div className="card absent-followup-card">
+                    <div className="absent-followup-header">
+                        <div>
+                            <h3 className="card-title">Повідомлення після звіту</h3>
+                            <p>
+                                Після успішного звіту програма створить відкладене повідомлення: окремо для уроків з відсутніми і без відсутніх.
+                            </p>
+                        </div>
+                        <label className="parents-inline-toggle absent-followup-toggle">
+                            <input
+                                type="checkbox"
+                                checked={!!followupSettings.absent_followup_enabled}
+                                onChange={(event) => updateFollowupSetting('absent_followup_enabled', event.target.checked)}
+                            />
+                            <span className="parents-inline-toggle-track">
+                                <span className="parents-inline-toggle-thumb" />
+                            </span>
+                            <span className="parents-inline-toggle-state">
+                                {followupSettings.absent_followup_enabled ? 'Увімкнено' : 'Вимкнено'}
+                            </span>
+                        </label>
+                    </div>
+
+                    <div className="absent-followup-grid">
+                        <label className="form-group">
+                            <span className="form-label">Коли створювати відкладене</span>
+                            <AppSelect
+                                value={followupSettings.absent_followup_schedule_mode || 'after_report'}
+                                options={[
+                                    { value: 'after_report', label: 'Після відправки звіту' },
+                                    { value: 'before_next_lesson', label: 'Перед наступним уроком' }
+                                ]}
+                                onChange={(value) => updateFollowupSetting('absent_followup_schedule_mode', value)}
+                                ariaLabel="Коли створювати відкладене повідомлення"
+                            />
+                        </label>
+
+                        {followupSettings.absent_followup_schedule_mode === 'before_next_lesson' ? (
+                            <label className="form-group">
+                                <span className="form-label">Час попереднього дня</span>
+                                <TimePicker
+                                    value={followupSettings.absent_followup_before_lesson_time || '20:00'}
+                                    onChange={(value) => updateFollowupSetting('absent_followup_before_lesson_time', value)}
+                                    ariaLabel="Час відкладеного повідомлення перед наступним уроком"
+                                />
+                            </label>
+                        ) : (
+                            <label className="form-group">
+                                <span className="form-label">Затримка після звіту, хв</span>
+                                <NumberStepper
+                                    value={followupSettings.absent_followup_delay_minutes ?? 5}
+                                    min={0}
+                                    max={10080}
+                                    onChange={(value) => updateFollowupSetting('absent_followup_delay_minutes', value)}
+                                    ariaLabel="Затримка після звіту"
+                                />
+                            </label>
+                        )}
+                    </div>
+
+                    <div className="absent-followup-template-grid">
+                        <div className="absent-followup-template-panel">
+                            <label className="form-group">
+                                <span className="form-label">Якщо є відсутні</span>
+                                <textarea
+                                    className="form-textarea absent-followup-template"
+                                    value={followupSettings.absent_followup_template || ''}
+                                    onChange={(event) => updateFollowupSetting('absent_followup_template', event.target.value)}
+                                    rows={8}
+                                />
+                            </label>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => resetFollowupTemplate('absent_followup_template')}
+                            >
+                                Повернути шаблон
+                            </button>
+                        </div>
+
+                        <div className="absent-followup-template-panel">
+                            <label className="form-group">
+                                <span className="form-label">Якщо відсутніх немає</span>
+                                <textarea
+                                    className="form-textarea absent-followup-template"
+                                    value={followupSettings.no_absents_followup_template || ''}
+                                    onChange={(event) => updateFollowupSetting('no_absents_followup_template', event.target.value)}
+                                    rows={8}
+                                />
+                            </label>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => resetFollowupTemplate('no_absents_followup_template')}
+                            >
+                                Повернути шаблон
+                            </button>
+                        </div>
+                    </div>
+
+                    <span className="absent-followup-hint">
+                        Плейсхолдери: {'{absents}'}, {'{makeup_time}'}, {'{next_lesson_day}'}, {'{next_lesson_time_dot}'}, {'{group}'}, {'{course}'}, {'{lesson_code}'}.
+                    </span>
+
+                    <div className="absent-followup-actions">
+                        <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={saveFollowupSettings}
+                            disabled={isSavingFollowupSettings}
+                        >
+                            {isSavingFollowupSettings ? 'Зберігаю...' : 'Зберегти повідомлення'}
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -904,11 +1170,42 @@ function AutoMessages() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {autoMessages.map(msg => (
-                                    <tr key={msg.id}>
-                                        <td><strong>{getGroupName(msg.group_id)}</strong></td>
-                                        <td style={{ maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {msg.message || <span style={{ color: 'var(--text-secondary)' }}>Без тексту</span>}
+                                {autoMessages.map(msg => {
+                                    const isEditing = editingId === msg.id
+                                    const isFollowup = msg.source === 'parent_report_absent_followup' || msg.source === 'parent_report_followup'
+                                    const followupType = msg.metadata?.type || (msg.source === 'parent_report_absent_followup' ? 'absent_followup' : '')
+                                    const followupLabel = followupType === 'regular_followup' ? 'Нагадування' : 'Відпрацювання'
+                                    return (
+                                    <tr key={msg.id} className={isFollowup ? 'auto-followup-row' : ''}>
+                                        <td>
+                                            <strong>{getGroupName(msg.group_id)}</strong>
+                                            {isFollowup && (
+                                                <span className="auto-followup-badge">{followupLabel}</span>
+                                            )}
+                                            {isFollowup && msg.metadata?.absents && (
+                                                <small className="auto-followup-meta">
+                                                    🔔 {msg.metadata.absents}
+                                                </small>
+                                            )}
+                                            {isFollowup && followupType === 'regular_followup' && msg.metadata?.next_lesson_day && (
+                                                <small className="auto-followup-meta">
+                                                    🔔 {msg.metadata.next_lesson_day} о {msg.metadata.next_lesson_time}
+                                                </small>
+                                            )}
+                                        </td>
+                                        <td className="auto-message-text-cell">
+                                            {isEditing ? (
+                                                <textarea
+                                                    className="form-textarea auto-edit-textarea"
+                                                    value={editDraft?.message || ''}
+                                                    onChange={(event) => setEditDraft(prev => ({ ...(prev || {}), message: event.target.value }))}
+                                                    rows={6}
+                                                />
+                                            ) : (
+                                                <div className="auto-message-preview">
+                                                    {msg.message || <span style={{ color: 'var(--text-secondary)' }}>Без тексту</span>}
+                                                </div>
+                                            )}
                                         </td>
                                         <td style={{ minWidth: '220px' }}>
                                             {(msg.files && msg.files.length > 0) || (msg.stickers && msg.stickers.length > 0) ? (
@@ -936,10 +1233,35 @@ function AutoMessages() {
                                                 <span style={{ color: 'var(--text-secondary)' }}>-</span>
                                             )}
                                         </td>
-                                        <td>{getDayLabel(msg.send_day)}</td>
-                                        <td>{msg.send_time}</td>
                                         <td>
-                                            {msg.repeat_count === 0
+                                            {isEditing ? (
+                                                <AppSelect
+                                                    value={editDraft?.send_day || msg.send_day}
+                                                    options={DAYS}
+                                                    onChange={(value) => setEditDraft(prev => ({ ...(prev || {}), send_day: value }))}
+                                                    ariaLabel="День відправки"
+                                                />
+                                            ) : getDayLabel(msg.send_day)}
+                                        </td>
+                                        <td>
+                                            {isEditing ? (
+                                                <TimePicker
+                                                    value={editDraft?.send_time || msg.send_time}
+                                                    onChange={(value) => setEditDraft(prev => ({ ...(prev || {}), send_time: value }))}
+                                                    ariaLabel="Час відправки"
+                                                />
+                                            ) : msg.send_time}
+                                        </td>
+                                        <td>
+                                            {isEditing ? (
+                                                <NumberStepper
+                                                    min={0}
+                                                    max={1000}
+                                                    value={editDraft?.repeat_count ?? msg.repeat_count}
+                                                    onChange={(value) => setEditDraft(prev => ({ ...(prev || {}), repeat_count: value }))}
+                                                    ariaLabel="Кількість повторів"
+                                                />
+                                            ) : msg.repeat_count === 0
                                                 ? <span style={{ color: 'var(--success)', fontWeight: 'bold' }}>Безкінечно ({msg.sent_count})</span>
                                                 : `${msg.sent_count} / ${msg.repeat_count}`
                                             }
@@ -951,22 +1273,54 @@ function AutoMessages() {
                                         </td>
                                         <td>
                                             <div className="btn-group">
-                                                <button
-                                                    className="btn btn-secondary btn-sm"
-                                                    onClick={() => toggleAutoMessage(msg.id)}
-                                                >
-                                                    {msg.is_active ? '⏸' : '▶'}
-                                                </button>
-                                                <button
-                                                    className="btn btn-danger btn-sm"
-                                                    onClick={() => deleteAutoMessage(msg.id)}
-                                                >
-                                                    Видалити
-                                                </button>
+                                                {isEditing ? (
+                                                    <>
+                                                        <button
+                                                            className="btn btn-primary btn-sm"
+                                                            onClick={() => saveAutoMessageEdit(msg.id)}
+                                                        >
+                                                            Зберегти
+                                                        </button>
+                                                        <button
+                                                            className="btn btn-secondary btn-sm"
+                                                            onClick={cancelEditAutoMessage}
+                                                        >
+                                                            Скасувати
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <button
+                                                            className="btn btn-secondary btn-sm"
+                                                            onClick={() => startEditAutoMessage(msg)}
+                                                            title="Редагувати"
+                                                        >
+                                                            ✎
+                                                        </button>
+                                                        <button
+                                                            className="btn btn-secondary btn-sm"
+                                                            onClick={() => toggleAutoMessage(msg.id)}
+                                                            title={msg.is_active ? 'Стоп' : 'Запустити'}
+                                                        >
+                                                            {isFollowup
+                                                                ? (msg.is_active ? 'Стоп' : 'Запустити')
+                                                                : (msg.is_active ? '⏸' : '▶')}
+                                                        </button>
+                                                        <button
+                                                            className="btn btn-danger btn-sm auto-delete-button"
+                                                            onClick={() => deleteAutoMessage(msg.id)}
+                                                            title="Видалити"
+                                                            aria-label="Видалити"
+                                                        >
+                                                            <TrashIcon />
+                                                        </button>
+                                                    </>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
+                                    )
+                                })}
                             </tbody>
                         </table>
                     </div>

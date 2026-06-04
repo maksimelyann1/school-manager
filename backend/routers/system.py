@@ -55,6 +55,7 @@ _update_state = {
     "total_bytes": 0,
     "auto_install": True,
     "platform": None,
+    "architecture": None,
     "file_name": None,
     "can_auto_install": True,
     "requires_manual_install": False,
@@ -573,6 +574,15 @@ def _current_update_platform() -> str:
     return sys.platform or "unknown"
 
 
+def _current_update_architecture() -> str:
+    machine = (platform.machine() or "").strip().lower()
+    if machine in {"arm64", "aarch64"}:
+        return "arm64"
+    if machine in {"x86_64", "amd64", "x64"}:
+        return "x64"
+    return machine or "unknown"
+
+
 def _download_entry_url(entry) -> str:
     if isinstance(entry, str):
         return entry.strip()
@@ -583,18 +593,46 @@ def _download_entry_url(entry) -> str:
 
 def _select_platform_download(data: dict) -> dict:
     platform_key = _current_update_platform()
+    architecture = _current_update_architecture()
     downloads = data.get("downloads") if isinstance(data, dict) else None
     entry = None
 
     if isinstance(downloads, dict):
-        aliases = {
+        generic_aliases = {
             "windows": ("windows", "win", "win32", "win64"),
             "macos": ("macos", "mac", "darwin", "osx"),
         }.get(platform_key, (platform_key,))
-        for alias in aliases:
+
+        architecture_aliases = ()
+        if platform_key == "macos" and architecture == "arm64":
+            architecture_aliases = (
+                "macos_arm64",
+                "macos-arm64",
+                "mac_arm64",
+                "darwin_arm64",
+            )
+        elif platform_key == "macos" and architecture == "x64":
+            architecture_aliases = (
+                "macos_intel",
+                "macos_x64",
+                "macos-x64",
+                "mac_intel",
+                "darwin_x64",
+            )
+
+        for alias in (*architecture_aliases, *generic_aliases):
             if alias in downloads:
                 entry = downloads.get(alias)
                 break
+
+        # Also support a nested macOS entry:
+        # "macos": {"arm64": {"url": "..."}, "intel": {"url": "..."}}
+        if platform_key == "macos" and isinstance(entry, dict) and not _download_entry_url(entry):
+            nested_aliases = ("arm64", "apple_silicon") if architecture == "arm64" else ("intel", "x64", "x86_64")
+            for alias in nested_aliases:
+                if alias in entry:
+                    entry = entry.get(alias)
+                    break
 
     url = _download_entry_url(entry)
     if not url and platform_key == "windows":
@@ -604,6 +642,7 @@ def _select_platform_download(data: dict) -> dict:
     filename = _update_package_filename(platform_key, url)
     return {
         "platform": platform_key,
+        "architecture": architecture,
         "url": url,
         "file_name": filename,
         "can_auto_install": can_auto_install,
@@ -693,6 +732,7 @@ async def get_version():
         "latest_version": None,
         "download_url": None,
         "download_platform": _current_update_platform(),
+        "download_architecture": _current_update_architecture(),
         "download_file_name": None,
         "can_auto_install": _current_update_platform() == "windows",
         "requires_manual_install": _current_update_platform() == "macos",
@@ -718,6 +758,7 @@ async def get_version():
         result["latest_version"] = latest or None
         result["download_url"] = selected_download["url"]
         result["download_platform"] = selected_download["platform"]
+        result["download_architecture"] = selected_download["architecture"]
         result["download_file_name"] = selected_download["file_name"]
         result["can_auto_install"] = selected_download["can_auto_install"]
         result["requires_manual_install"] = selected_download["requires_manual_install"]
@@ -857,6 +898,7 @@ async def start_update_download(background_tasks: BackgroundTasks, payload: Opti
         total_bytes=0,
         auto_install=payload.auto_install,
         platform=_current_update_platform(),
+        architecture=_current_update_architecture(),
         file_name=None,
         can_auto_install=_current_update_platform() == "windows",
         requires_manual_install=_current_update_platform() == "macos",
@@ -893,6 +935,7 @@ async def start_update_download(background_tasks: BackgroundTasks, payload: Opti
         total_bytes=0,
         auto_install=payload.auto_install,
         platform=selected_download["platform"],
+        architecture=selected_download["architecture"],
         file_name=selected_download["file_name"],
         can_auto_install=selected_download["can_auto_install"],
         requires_manual_install=selected_download["requires_manual_install"],

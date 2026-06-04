@@ -1,0 +1,19 @@
+{
+  "latest_version": "2.2",
+  "download_url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.2/SchoolManager_Setup.exe",
+  "changelog": "Додано повідомлення після звіту для уроків без відсутніх.\nПокращено відправку GIF-анімацій у Telegram.\nПокращено стабільність завершення програми, трея та автозапуску.\nДодано окремі збірки macOS для Apple Silicon та Intel.\nОновлено сторінку Інфо та адаптивність інтерфейсу.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.2/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.2/SchoolManager-macOS-unsigned.dmg"
+    },
+    "macos_arm64": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.2/SchoolManager-macOS-arm64-unsigned.dmg"
+    },
+    "macos_intel": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.2/SchoolManager-macOS-intel-unsigned.dmg"
+    }
+  }
+}

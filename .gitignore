@@ -18,6 +18,8 @@ venv/
 # Сесія Pyrogram
 *.session
 *.session-journal
+*.session-wal
+*.session-shm
 
 # Node / Frontend
 frontend/node_modules/
@@ -26,6 +28,7 @@ frontend/dist/
 # Build outputs
 build/
 dist/
+tmp/
 
 # Лог файли
 *.log

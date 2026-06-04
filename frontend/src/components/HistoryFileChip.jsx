@@ -236,7 +236,7 @@ function HistoryFileChip({ historyId, fileIndex, fileName, onOpenError }) {
                 ref={rootRef}
                 type="button"
                 className={`history-file-chip ${kind}`}
-                title={`${fileName} - відкрити у Windows`}
+                title={`${fileName} - відкрити у системній програмі`}
                 onMouseEnter={() => setIsHovering(true)}
                 onMouseLeave={() => setIsHovering(false)}
                 onFocus={() => setIsHovering(true)}

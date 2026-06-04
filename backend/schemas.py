@@ -139,6 +139,12 @@ class AutoMessageResponse(AutoMessageBase):
     id: int
     sent_count: int
     is_active: int
+    source: str = "manual"
+    parent_report_lesson_id: Optional[int] = None
+    parent_report_run_id: Optional[int] = None
+    scheduled_message_id: Optional[int] = None
+    scheduled_target_at: Optional[str] = None
+    metadata: Optional[dict] = None
     group: Optional[GroupResponse] = None
     files: List[AutoMessageFileResponse] = Field(default_factory=list)
     stickers: List[dict] = Field(default_factory=list)

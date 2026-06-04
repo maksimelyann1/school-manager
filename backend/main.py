@@ -88,14 +88,18 @@ async def lifespan(app: FastAPI):
     
     # Від'єднуємо Pyrogram
     stickers.cancel_sticker_cache_warmup()
-    await pyrogram_manager.disconnect()
+    try:
+        await pyrogram_manager.disconnect()
+    finally:
+        # Закриваємо SQLite-пул після планувальників і Telegram-клієнта.
+        engine.dispose()
 
 
 # Створюємо FastAPI додаток
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.1.0",
+    version="2.2.0",
     lifespan=lifespan
 )
 
@@ -187,7 +191,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.1 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.2 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }

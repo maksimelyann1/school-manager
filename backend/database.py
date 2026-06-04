@@ -81,6 +81,33 @@ def ensure_schema_migrations():
                 connection.execute(
                     text("ALTER TABLE auto_messages ADD COLUMN last_scheduled_for VARCHAR")
                 )
+            if "source" not in auto_message_columns:
+                connection.execute(
+                    text("ALTER TABLE auto_messages ADD COLUMN source VARCHAR DEFAULT 'manual' NOT NULL")
+                )
+                connection.execute(
+                    text("UPDATE auto_messages SET source = 'manual' WHERE source IS NULL OR source = ''")
+                )
+            if "parent_report_lesson_id" not in auto_message_columns:
+                connection.execute(
+                    text("ALTER TABLE auto_messages ADD COLUMN parent_report_lesson_id INTEGER")
+                )
+            if "parent_report_run_id" not in auto_message_columns:
+                connection.execute(
+                    text("ALTER TABLE auto_messages ADD COLUMN parent_report_run_id INTEGER")
+                )
+            if "scheduled_message_id" not in auto_message_columns:
+                connection.execute(
+                    text("ALTER TABLE auto_messages ADD COLUMN scheduled_message_id INTEGER")
+                )
+            if "scheduled_target_at" not in auto_message_columns:
+                connection.execute(
+                    text("ALTER TABLE auto_messages ADD COLUMN scheduled_target_at VARCHAR")
+                )
+            if "metadata_json" not in auto_message_columns:
+                connection.execute(
+                    text("ALTER TABLE auto_messages ADD COLUMN metadata_json TEXT")
+                )
 
         if "templates" in table_names:
             template_columns = {
@@ -113,6 +140,42 @@ def ensure_schema_migrations():
                 )
                 connection.execute(
                     text("UPDATE parent_report_settings SET report_notification_delay_minutes = 0 WHERE report_notification_delay_minutes IS NULL")
+                )
+            if "absent_followup_enabled" not in parent_settings_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_settings ADD COLUMN absent_followup_enabled INTEGER DEFAULT 1 NOT NULL")
+                )
+                connection.execute(
+                    text("UPDATE parent_report_settings SET absent_followup_enabled = 1 WHERE absent_followup_enabled IS NULL")
+                )
+            if "absent_followup_schedule_mode" not in parent_settings_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_settings ADD COLUMN absent_followup_schedule_mode VARCHAR DEFAULT 'after_report' NOT NULL")
+                )
+                connection.execute(
+                    text("UPDATE parent_report_settings SET absent_followup_schedule_mode = 'after_report' WHERE absent_followup_schedule_mode IS NULL OR absent_followup_schedule_mode = ''")
+                )
+            if "absent_followup_delay_minutes" not in parent_settings_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_settings ADD COLUMN absent_followup_delay_minutes INTEGER DEFAULT 5 NOT NULL")
+                )
+                connection.execute(
+                    text("UPDATE parent_report_settings SET absent_followup_delay_minutes = 5 WHERE absent_followup_delay_minutes IS NULL")
+                )
+            if "absent_followup_before_lesson_time" not in parent_settings_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_settings ADD COLUMN absent_followup_before_lesson_time VARCHAR DEFAULT '20:00' NOT NULL")
+                )
+                connection.execute(
+                    text("UPDATE parent_report_settings SET absent_followup_before_lesson_time = '20:00' WHERE absent_followup_before_lesson_time IS NULL OR absent_followup_before_lesson_time = ''")
+                )
+            if "absent_followup_template" not in parent_settings_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_settings ADD COLUMN absent_followup_template TEXT")
+                )
+            if "no_absents_followup_template" not in parent_settings_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_settings ADD COLUMN no_absents_followup_template TEXT")
                 )
             if "report_delay_minutes" in parent_settings_columns:
                 connection.execute(

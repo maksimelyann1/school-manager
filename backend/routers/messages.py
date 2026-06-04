@@ -11,9 +11,12 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 from urllib.parse import urlparse
+
+from PIL import Image
 
 from database import get_db
 from file_storage import (
@@ -33,12 +36,15 @@ router = APIRouter(prefix="/messages", tags=["Повідомлення"])
 
 CONCURRENT_LIMIT_TEXT = 10
 CONCURRENT_LIMIT_MEDIA = 4
+CONCURRENT_LIMIT_CACHED_MEDIA = 10
 STAGGER_DELAY = 0.12
+CACHED_MEDIA_STAGGER_DELAY = 0.03
 MAX_RETRIES = 3
 MEDIA_GROUP_LIMIT = 10
 CAPTION_LIMIT = 1024
 FILE_READ_CHUNK_SIZE = 1024 * 1024
 MAX_STICKERS_PER_SEND = 12
+GIF_TO_MP4_TIMEOUT = 120
 PHOTO_AS_DOCUMENT_ERRORS = (
     "PHOTO_INVALID_DIMENSIONS",
     "PHOTO_EXT_INVALID",
@@ -128,17 +134,135 @@ def _find_matching_import_file(folder: str, expected_digest: str, expected_size:
     return None
 
 
+def _is_gif_file_data(file_data: dict) -> bool:
+    content_type = (file_data.get("type") or "").split(";")[0].lower()
+    filename = (file_data.get("filename") or "").lower()
+    return content_type == "image/gif" or filename.endswith(".gif")
+
+
 def _detect_kind(file_data: dict) -> str:
     content_type = (file_data.get("type") or "").lower()
     filename = (file_data.get("filename") or "").lower()
 
-    if content_type == "image/gif" or filename.endswith(".gif"):
+    if _is_gif_file_data(file_data):
         return "animation"
     if content_type.startswith("image/"):
         return "photo"
     if content_type.startswith("video/"):
         return "video"
     return "document"
+
+
+def _converted_animation_filename(filename: str | None) -> str:
+    stem = os.path.splitext(_safe_filename(filename or "animation.gif", "animation.gif"))[0]
+    return f"{stem or 'animation'}.mp4"
+
+
+def _even_dimension(value: int) -> int:
+    return max(2, int(value) - (int(value) % 2))
+
+
+def _convert_gif_to_mp4(source_path: str, target_path: str, width: int | None = None, height: int | None = None):
+    try:
+        import imageio_ffmpeg
+    except Exception as error:
+        raise RuntimeError("imageio-ffmpeg не встановлено, неможливо підготувати GIF-анімацію") from error
+
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    scale_filter = "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+    if width and height:
+        scale_filter = f"scale={_even_dimension(width)}:{_even_dimension(height)}"
+
+    command = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        source_path,
+        "-movflags",
+        "+faststart",
+        "-pix_fmt",
+        "yuv420p",
+        "-vf",
+        scale_filter,
+        "-an",
+        target_path,
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=GIF_TO_MP4_TIMEOUT)
+    if result.returncode != 0 or not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
+        details = (result.stderr or result.stdout or "невідома помилка ffmpeg").strip()
+        raise RuntimeError(details[:500])
+
+
+def _gif_video_metadata(source_path: str) -> dict:
+    try:
+        with Image.open(source_path) as image:
+            width, height = image.size
+            frame_count = getattr(image, "n_frames", 1) or 1
+            total_ms = 0
+            for frame_index in range(frame_count):
+                try:
+                    image.seek(frame_index)
+                    total_ms += int(image.info.get("duration") or 100)
+                except EOFError:
+                    break
+
+        duration = max(1, round(total_ms / 1000)) if total_ms else 0
+        display_width = width
+        display_height = height
+        if width and height and max(width, height) < 480:
+            scale = 480 / max(width, height)
+            display_width = round(width * scale)
+            display_height = round(height * scale)
+
+        return {
+            "duration": duration,
+            "width": display_width,
+            "height": display_height,
+        }
+    except Exception:
+        return {}
+
+
+def _prepare_gif_animations(file_data_list: list | None) -> str | None:
+    temp_dir = None
+    for index, file_data in enumerate(file_data_list or []):
+        if file_data.get("kind") != "animation" or not _is_gif_file_data(file_data):
+            continue
+        if file_data.get("converted_from_gif"):
+            continue
+
+        source_path = file_data.get("path")
+        if not source_path or not os.path.exists(source_path):
+            continue
+
+        if temp_dir is None:
+            temp_dir = tempfile.mkdtemp(prefix="school_manager_gif_mp4_")
+
+        original_filename = file_data.get("filename") or f"animation_{index}.gif"
+        converted_filename = _converted_animation_filename(original_filename)
+        target_path = os.path.join(temp_dir, f"{index:03d}_{converted_filename}")
+        metadata = _gif_video_metadata(source_path)
+        _convert_gif_to_mp4(
+            source_path,
+            target_path,
+            width=metadata.get("width"),
+            height=metadata.get("height"),
+        )
+
+        file_data["gif_source_path"] = source_path
+        file_data["gif_original_filename"] = original_filename
+        file_data["path"] = target_path
+        file_data["filename"] = converted_filename
+        file_data["type"] = "video/mp4"
+        file_data["kind"] = "video"
+        file_data["gif_as_video"] = True
+        file_data.update(metadata)
+        file_data["converted_from_gif"] = True
+
+    return temp_dir
 
 
 def _media_value(file_data: dict, prefer_cached: bool, as_document: bool = False):
@@ -149,6 +273,12 @@ def _media_value(file_data: dict, prefer_cached: bool, as_document: bool = False
     return file_data["path"]
 
 
+def _cached_send_kind(file_data: dict, prefer_cached: bool) -> str | None:
+    if not prefer_cached or not file_data.get("file_id"):
+        return None
+    return file_data.get("cached_send_kind") or file_data.get("kind")
+
+
 def _message_media(message, kind: str):
     if not message:
         return None
@@ -157,20 +287,58 @@ def _message_media(message, kind: str):
     if kind == "video":
         return getattr(message, "video", None)
     if kind == "animation":
-        return getattr(message, "animation", None) or getattr(message, "document", None)
+        return getattr(message, "animation", None)
     return getattr(message, "document", None)
 
 
 def _remember_file_id(file_data: dict, message, stored_kind: str | None = None):
     stored_kind = stored_kind or file_data["kind"]
+    had_file_id = bool(file_data.get("file_id"))
+    had_document_file_id = bool(file_data.get("document_file_id"))
     media = _message_media(message, stored_kind)
     file_id = getattr(media, "file_id", None)
+    if not file_id and stored_kind == "video":
+        animation = getattr(message, "animation", None)
+        animation_file_id = getattr(animation, "file_id", None)
+        if animation_file_id:
+            file_data["file_id"] = animation_file_id
+            file_data["cached_send_kind"] = "animation"
+            if not had_file_id:
+                source = "GIF" if file_data.get("gif_as_video") else "Video"
+                log_event("INFO", "Send", f"{source} file_id отримано як Telegram animation; наступні групи підуть через ID")
+            return
     if file_id:
         if stored_kind == "document" and file_data["kind"] != "document":
             file_data["document_file_id"] = file_id
             file_data["force_document"] = True
+            if not had_document_file_id:
+                log_event("INFO", "Send", "file_id отримано як Telegram document fallback; наступні групи підуть через ID")
         else:
             file_data["file_id"] = file_id
+            file_data["cached_send_kind"] = stored_kind
+            if file_data.get("gif_as_video") and not had_file_id:
+                log_event("INFO", "Send", f"GIF file_id отримано як Telegram {stored_kind}; наступні групи підуть через ID")
+            elif stored_kind in {"video", "document"} and not had_file_id:
+                log_event("INFO", "Send", f"file_id отримано як Telegram {stored_kind}; наступні групи підуть через ID")
+
+
+def _has_cached_media(file_data: dict) -> bool:
+    if file_data.get("force_document") and file_data.get("document_file_id"):
+        return True
+    return bool(file_data.get("file_id"))
+
+
+def _all_files_have_cached_media(file_data_list: list | None) -> bool:
+    return all(_has_cached_media(file_data) for file_data in (file_data_list or []))
+
+
+def _video_send_options(file_data: dict) -> dict:
+    return {
+        "duration": int(file_data.get("duration") or 0),
+        "width": int(file_data.get("width") or 0),
+        "height": int(file_data.get("height") or 0),
+        "supports_streaming": True,
+    }
 
 
 def _is_photo_as_document_error(error: Exception) -> bool:
@@ -216,8 +384,19 @@ async def _send_single_file(
     as_document = as_document or file_data.get("force_document", False)
     value = _media_value(file_data, prefer_cached, as_document=as_document)
     kind = file_data["kind"]
+    cached_kind = _cached_send_kind(file_data, prefer_cached)
 
-    if as_document or kind == "document":
+    if cached_kind == "animation":
+        message = await client.send_animation(
+            chat,
+            value,
+            caption=caption,
+            file_name=file_data.get("filename"),
+            schedule_date=schedule_date
+        )
+    elif cached_kind == "video":
+        message = await client.send_video(chat, value, caption=caption, schedule_date=schedule_date)
+    elif as_document or kind == "document":
         message = await client.send_document(
             chat,
             value,
@@ -230,10 +409,28 @@ async def _send_single_file(
         message = await client.send_photo(chat, value, caption=caption, schedule_date=schedule_date)
         _remember_file_id(file_data, message)
     elif kind == "video":
-        message = await client.send_video(chat, value, caption=caption, schedule_date=schedule_date)
+        message = await client.send_video(
+            chat,
+            value,
+            caption=caption,
+            schedule_date=schedule_date,
+            **_video_send_options(file_data)
+        )
+        if file_data.get("gif_as_video") and not (getattr(message, "video", None) or getattr(message, "animation", None)):
+            log_event(
+                "WARNING",
+                "Send",
+                "Telegram прийняв GIF після MP4-підготовки, але не повернув video/animation media; повторне використання file_id може бути недоступне"
+            )
         _remember_file_id(file_data, message)
     elif kind == "animation":
-        message = await client.send_animation(chat, value, caption=caption, schedule_date=schedule_date)
+        message = await client.send_animation(
+            chat,
+            value,
+            caption=caption,
+            file_name=file_data.get("filename"),
+            schedule_date=schedule_date
+        )
         _remember_file_id(file_data, message)
 
     return [message]
@@ -317,7 +514,8 @@ async def _send_document_album(client, chat: int, files: list, caption: str | No
 
 
 async def _send_files(client, chat: int, text: str, file_data_list: list, prefer_cached: bool, schedule_date=None):
-    media_files = [f for f in file_data_list if f["kind"] in ("photo", "video")]
+    media_files = [f for f in file_data_list if f["kind"] in ("photo", "video") and not f.get("gif_as_video")]
+    gif_video_files = [f for f in file_data_list if f.get("gif_as_video")]
     document_files = [f for f in file_data_list if f["kind"] == "document"]
     animation_files = [f for f in file_data_list if f["kind"] == "animation"]
 
@@ -335,6 +533,11 @@ async def _send_files(client, chat: int, text: str, file_data_list: list, prefer
     for files in _chunked(document_files, MEDIA_GROUP_LIMIT):
         caption = caption_text if not caption_used else None
         await _send_document_album(client, chat, files, caption, prefer_cached, schedule_date=schedule_date)
+        caption_used = caption_used or bool(caption)
+
+    for file_data in gif_video_files:
+        caption = caption_text if not caption_used else None
+        await _send_single_file(client, chat, file_data, caption, prefer_cached, schedule_date=schedule_date)
         caption_used = caption_used or bool(caption)
 
     for file_data in animation_files:
@@ -380,36 +583,55 @@ async def send_pyrogram_message(
     if not text and not file_data_list and not sticker_file_ids:
         return {"ok": False, "description": "Немає тексту, файлів або наліпок для відправки"}
 
-    for attempt in range(MAX_RETRIES):
+    conversion_temp_dir = None
+    if file_data_list and any(item.get("kind") == "animation" and _is_gif_file_data(item) for item in file_data_list):
+        file_data_list = [dict(item) for item in file_data_list]
         try:
-            if not file_data_list:
-                if text:
-                    await client.send_message(chat, text, schedule_date=schedule_date)
-            else:
-                await _ensure_client_user(client)
-                await _send_files(client, chat, text, file_data_list, prefer_cached, schedule_date=schedule_date)
-
-            if sticker_file_ids:
-                await _send_stickers(client, chat, sticker_file_ids, schedule_date=schedule_date)
-
-            return {"ok": True, "description": "OK"}
-
-        except FloodWait as error:
-            if attempt >= MAX_RETRIES - 1:
-                return {
-                    "ok": False,
-                    "description": f"Telegram просить зачекати {error.value} с; спроби вичерпано"
-                }
-            await asyncio.sleep(error.value)
-
-        except RPCError as error:
-            return {"ok": False, "description": _error_text(error)}
-
+            conversion_temp_dir = _prepare_gif_animations(file_data_list)
         except Exception as error:
-            return {"ok": False, "description": _error_text(error)}
+            return {"ok": False, "description": f"Не вдалося підготувати GIF-анімацію: {_error_text(error)}"}
 
-    return {"ok": False, "description": "Не вдалося відправити після повторних спроб"}
+    try:
+        for attempt in range(MAX_RETRIES):
+            try:
+                sent_messages = []
+                if not file_data_list:
+                    if text:
+                        sent_message = await client.send_message(chat, text, schedule_date=schedule_date)
+                        if sent_message is not None:
+                            sent_messages.append(sent_message)
+                else:
+                    await _ensure_client_user(client)
+                    await _send_files(client, chat, text, file_data_list, prefer_cached, schedule_date=schedule_date)
 
+                if sticker_file_ids:
+                    await _send_stickers(client, chat, sticker_file_ids, schedule_date=schedule_date)
+
+                message_ids = [
+                    getattr(message, "id", None)
+                    for message in sent_messages
+                    if getattr(message, "id", None) is not None
+                ]
+                return {"ok": True, "description": "OK", "message_ids": message_ids}
+
+            except FloodWait as error:
+                if attempt >= MAX_RETRIES - 1:
+                    return {
+                        "ok": False,
+                        "description": f"Telegram просить зачекати {error.value} с; спроби вичерпано"
+                    }
+                await asyncio.sleep(error.value)
+
+            except RPCError as error:
+                return {"ok": False, "description": _error_text(error)}
+
+            except Exception as error:
+                return {"ok": False, "description": _error_text(error)}
+
+        return {"ok": False, "description": "Не вдалося відправити після повторних спроб"}
+    finally:
+        if conversion_temp_dir and os.path.exists(conversion_temp_dir):
+            shutil.rmtree(conversion_temp_dir, ignore_errors=True)
 
 async def _send_to_one_group_inner(group, message, file_data_list, sticker_file_ids, index, total, prefer_cached: bool):
     print(f"[Send] Sending to '{group.name}' [{index + 1}/{total}]")
@@ -447,14 +669,18 @@ async def _send_to_one_group(
     sticker_file_ids,
     index,
     total,
-    prefer_cached: bool = True
+    prefer_cached: bool = True,
+    delay_order: int | None = None,
+    stagger_delay: float = STAGGER_DELAY
 ):
     if semaphore is None:
         return await _send_to_one_group_inner(
             group, message, file_data_list, sticker_file_ids, index, total, prefer_cached
         )
 
-    await asyncio.sleep(index * STAGGER_DELAY)
+    order = index if delay_order is None else delay_order
+    if stagger_delay:
+        await asyncio.sleep(order * stagger_delay)
     async with semaphore:
         return await _send_to_one_group_inner(
             group, message, file_data_list, sticker_file_ids, index, total, prefer_cached
@@ -585,7 +811,7 @@ async def import_url_file(payload: ImportUrlRequest):
         raise HTTPException(status_code=400, detail="Підтримуються тільки http/https посилання")
 
     timeout = httpx.Timeout(60.0, connect=10.0)
-    headers = {"User-Agent": "SchoolManager/2.1"}
+    headers = {"User-Agent": "SchoolManager/2.2"}
 
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
@@ -681,7 +907,13 @@ async def send_message(
     start_time = time.time()
     print(f"[Send] Start: {total} groups, {len(file_data_list)} files, {len(sticker_file_ids)} stickers")
 
+    conversion_temp_dir = None
     try:
+        try:
+            conversion_temp_dir = _prepare_gif_animations(file_data_list)
+        except Exception as error:
+            raise HTTPException(status_code=400, detail=f"Не вдалося підготувати GIF-анімацію: {_error_text(error)}")
+
         results = []
 
         if file_data_list:
@@ -702,11 +934,20 @@ async def send_message(
                 results.append(result)
                 next_index = index + 1
                 if result["success"]:
-                    cache_ready = True
+                    cache_ready = _all_files_have_cached_media(file_data_list)
+                    if not cache_ready:
+                        log_event(
+                            "WARNING",
+                            "Send",
+                            "Telegram прийняв перше медіа, але не повернув file_id для всіх файлів; наступні групи будуть відправлені без кешу"
+                        )
                     break
 
-            if cache_ready and next_index < total:
-                semaphore = asyncio.Semaphore(CONCURRENT_LIMIT_MEDIA)
+            if next_index < total and any(result["success"] for result in results):
+                semaphore = asyncio.Semaphore(
+                    CONCURRENT_LIMIT_CACHED_MEDIA if cache_ready else CONCURRENT_LIMIT_MEDIA
+                )
+                stagger_delay = CACHED_MEDIA_STAGGER_DELAY if cache_ready else STAGGER_DELAY
                 tasks = [
                     _send_to_one_group(
                         semaphore,
@@ -714,11 +955,13 @@ async def send_message(
                         message,
                         file_data_list,
                         sticker_file_ids,
-                        index,
+                        next_index + order,
                         total,
-                        prefer_cached=True
+                        prefer_cached=cache_ready,
+                        delay_order=order,
+                        stagger_delay=stagger_delay
                     )
-                    for index, group in enumerate(groups[next_index:], start=next_index)
+                    for order, group in enumerate(groups[next_index:])
                 ]
                 results.extend(await asyncio.gather(*tasks))
         else:
@@ -756,5 +999,7 @@ async def send_message(
         }
 
     finally:
+        if conversion_temp_dir and os.path.exists(conversion_temp_dir):
+            shutil.rmtree(conversion_temp_dir, ignore_errors=True)
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)

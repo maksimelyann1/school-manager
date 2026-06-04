@@ -95,7 +95,14 @@ _splash_window: webview.Window | None = None
 _tray: pystray.Icon | None = None
 _app_url: str | None = None
 _server_started = threading.Event()
+_backend_stopped = threading.Event()
+_shutdown_requested = threading.Event()
+_tray_ready = threading.Event()
+_exit_worker_started = threading.Event()
 _main_window_maximized = False
+_allow_window_close = False
+_backend_server = None
+_backend_loop: asyncio.AbstractEventLoop | None = None
 
 
 def log_launcher(message: str):
@@ -579,10 +586,42 @@ def _bring_window_to_foreground_async(window: webview.Window):
         threading.Thread(target=_bring_window_to_foreground, args=(window,), daemon=True).start()
 
 
+def _request_backend_shutdown():
+    _shutdown_requested.set()
+    server = _backend_server
+    loop = _backend_loop
+    if server is not None:
+        try:
+            server.should_exit = True
+        except Exception as error:
+            log_launcher(f"Backend shutdown flag failed: {error}")
+    if loop is not None:
+        try:
+            loop.call_soon_threadsafe(lambda: None)
+        except Exception:
+            pass
+
+
+def _exit_after_backend_shutdown(timeout: float = 8.0):
+    stopped = _backend_stopped.wait(timeout=timeout)
+    log_launcher("Backend stopped cleanly" if stopped else "Backend shutdown timeout; forcing process exit")
+    os._exit(0)
+
+
+def _start_exit_worker():
+    if _exit_worker_started.is_set():
+        return
+    _exit_worker_started.set()
+    threading.Thread(target=_exit_after_backend_shutdown, daemon=False).start()
+
+
 def _quit_application(icon: pystray.Icon | None = None):
-    global _window, _splash_window
+    global _window, _splash_window, _allow_window_close
 
     log_launcher("Launcher quit requested")
+    _allow_window_close = True
+    _request_backend_shutdown()
+
     tray_icon = icon or _tray
     if tray_icon:
         try:
@@ -590,13 +629,11 @@ def _quit_application(icon: pystray.Icon | None = None):
         except Exception:
             pass
 
-    # Closing from the tray runs outside the WebView GUI thread. Calling
-    # Window.destroy() from here can make Edge/WinForms return a .NET HRESULT
-    # even though the app has actually closed. A process exit is cleaner here:
-    # daemon backend/tray threads and WebView resources are released by Windows.
-    _splash_window = None
-    _window = None
-    os._exit(0)
+    target = _window or _splash_window
+    if target:
+        _destroy_window_safely(target)
+
+    _start_exit_worker()
 
 
 class SplashApi:
@@ -815,13 +852,17 @@ def find_active_url() -> str | None:
 
 
 def run_backend():
+    global _backend_server, _backend_loop
+
     log_launcher("Backend thread starting")
     kill_process_on_port(8001)
     log_launcher(f"Using backend dir: {BACKEND_DIR}")
 
+    loop = None
     try:
         os.chdir(BACKEND_DIR)
         loop = asyncio.new_event_loop()
+        _backend_loop = loop
         asyncio.set_event_loop(loop)
 
         import uvicorn
@@ -835,6 +876,9 @@ def run_backend():
             loop="asyncio",
         )
         server = uvicorn.Server(config)
+        _backend_server = server
+        if _shutdown_requested.is_set():
+            server.should_exit = True
         _server_started.set()
         log_launcher("Uvicorn server starting on 127.0.0.1:8001")
         loop.run_until_complete(server.serve())
@@ -849,6 +893,16 @@ def run_backend():
         except Exception:
             pass
         _server_started.set()
+    finally:
+        _backend_server = None
+        _backend_loop = None
+        if loop is not None:
+            try:
+                loop.close()
+            except Exception:
+                pass
+        _backend_stopped.set()
+        log_launcher("Backend thread stopped")
 
 
 def _make_icon():
@@ -871,13 +925,11 @@ def _on_quit(icon, _item):
     _quit_application(icon)
 
 
-def run_tray():
+def _create_tray_icon():
     global _tray
     if pystray is None:
         log_launcher("Tray unavailable: pystray import failed")
-        if should_start_in_tray():
-            threading.Timer(2.0, lambda: _window.show() if _window else None).start()
-        return
+        return None
 
     try:
         menu = pystray.Menu(
@@ -886,17 +938,81 @@ def run_tray():
             pystray.MenuItem("Закрити програму", _on_quit),
         )
         _tray = pystray.Icon("SchoolManager", _make_icon(), "School Manager", menu)
-        _tray.run()
+        return _tray
     except Exception as error:
         log_launcher(f"Tray unavailable: {error}")
-        if should_start_in_tray():
-            threading.Timer(2.0, lambda: _window.show() if _window else None).start()
+        return None
+
+
+def _tray_setup(icon):
+    try:
+        icon.visible = True
+        _tray_ready.set()
+        log_launcher("Tray icon ready")
+    except Exception as error:
+        log_launcher(f"Tray icon setup failed: {error}")
+
+
+def _show_window_if_tray_unavailable():
+    if should_start_in_tray() and not _tray_ready.is_set():
+        log_launcher("Start-in-tray fallback: showing window because tray is unavailable")
+        if _window:
+            try:
+                _window.show()
+            except Exception:
+                pass
+
+
+def run_tray():
+    tray_icon = _create_tray_icon()
+    if tray_icon is None:
+        threading.Timer(2.0, _show_window_if_tray_unavailable).start()
+        return
+
+    try:
+        tray_icon.run(setup=_tray_setup)
+    except Exception as error:
+        log_launcher(f"Tray unavailable: {error}")
+        _tray_ready.clear()
+        threading.Timer(2.0, _show_window_if_tray_unavailable).start()
+
+
+def start_macos_tray_detached():
+    tray_icon = _create_tray_icon()
+    if tray_icon is None:
+        threading.Timer(2.0, _show_window_if_tray_unavailable).start()
+        return
+
+    try:
+        tray_icon.run_detached(setup=_tray_setup)
+    except Exception as error:
+        log_launcher(f"macOS tray unavailable: {error}")
+        _tray_ready.clear()
+        threading.Timer(2.0, _show_window_if_tray_unavailable).start()
 
 
 def on_closing():
+    if _allow_window_close or not _tray_ready.is_set():
+        _request_backend_shutdown()
+        _start_exit_worker()
+        return True
+
     if _window:
         threading.Thread(target=_window.hide, daemon=True).start()
     return False
+
+
+def _on_window_closed():
+    if not _shutdown_requested.is_set():
+        log_launcher("Main window closed without tray; shutting down")
+        _request_backend_shutdown()
+    _start_exit_worker()
+    tray_icon = _tray
+    if tray_icon:
+        try:
+            tray_icon.stop()
+        except Exception:
+            pass
 
 
 def _on_window_maximized():
@@ -911,6 +1027,7 @@ def _on_window_restored():
 
 def _attach_main_window_events(window: webview.Window):
     window.events.closing += on_closing
+    window.events.closed += _on_window_closed
     window.events.maximized += _on_window_maximized
     window.events.restored += _on_window_restored
     window.events.shown += lambda: _style_native_title_bar_async(window)
@@ -1032,7 +1149,10 @@ def main():
 
     _create_initial_window(start_in_tray)
 
-    threading.Thread(target=run_tray, daemon=True).start()
+    if sys.platform == "darwin":
+        start_macos_tray_detached()
+    else:
+        threading.Thread(target=run_tray, daemon=True).start()
     start_kwargs = {"debug": False}
     if sys.platform == "win32":
         start_kwargs["gui"] = "edgechromium"

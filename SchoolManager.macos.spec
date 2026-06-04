@@ -25,6 +25,7 @@ for package_name in (
     "apscheduler",
     "pydantic",
     "qrcode",
+    "imageio_ffmpeg",
     "webview",
     "pystray",
 ):
@@ -88,8 +89,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "School Manager",
         "CFBundleDisplayName": "School Manager",
-        "CFBundleShortVersionString": "2.1",
-        "CFBundleVersion": "2.1.0",
-        "NSHighResolutionCapable": "True",
+        "CFBundleShortVersionString": "2.2",
+        "CFBundleVersion": "2.2.0",
+        "NSHighResolutionCapable": True,
     },
 )

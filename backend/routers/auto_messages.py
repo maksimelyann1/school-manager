@@ -1,5 +1,6 @@
 ﻿# API для автоповідомлень через Pyrogram
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 from typing import List
 from pyrogram.errors import FloodWait, RPCError, PeerIdInvalid
@@ -37,6 +38,13 @@ _recent_create_fingerprints: dict[str, float] = {}
 
 class ChatPeerUnavailable(RuntimeError):
     pass
+
+
+class AutoMessageUpdatePayload(BaseModel):
+    message: str | None = None
+    send_time: str | None = None
+    send_day: str | None = None
+    repeat_count: int | None = None
 
 
 DAY_MAP = {
@@ -256,6 +264,14 @@ def _stickers_from_auto_message(auto_msg: AutoMessage) -> list[dict]:
 
 def _serialize_auto_message(auto_msg: AutoMessage):
     auto_msg = _mark_file_exists(auto_msg)
+    metadata = {}
+    if getattr(auto_msg, "metadata_json", None):
+        try:
+            metadata = json.loads(auto_msg.metadata_json)
+            if not isinstance(metadata, dict):
+                metadata = {}
+        except Exception:
+            metadata = {}
     return {
         "id": auto_msg.id,
         "group_id": auto_msg.group_id,
@@ -265,6 +281,12 @@ def _serialize_auto_message(auto_msg: AutoMessage):
         "repeat_count": auto_msg.repeat_count,
         "sent_count": auto_msg.sent_count,
         "is_active": auto_msg.is_active,
+        "source": getattr(auto_msg, "source", None) or "manual",
+        "parent_report_lesson_id": getattr(auto_msg, "parent_report_lesson_id", None),
+        "parent_report_run_id": getattr(auto_msg, "parent_report_run_id", None),
+        "scheduled_message_id": getattr(auto_msg, "scheduled_message_id", None),
+        "scheduled_target_at": getattr(auto_msg, "scheduled_target_at", None),
+        "metadata": metadata,
         "group": auto_msg.group,
         "files": auto_msg.files,
         "stickers": _stickers_from_auto_message(auto_msg),
@@ -459,6 +481,47 @@ async def get_scheduled_for_chat(client, chat_id: int) -> list:
         return []
 
 
+async def _delete_scheduled_telegram_message(auto_msg: AutoMessage, group: Group) -> bool:
+    message_id = getattr(auto_msg, "scheduled_message_id", None)
+    if not message_id or not pyrogram_manager.is_connected:
+        return False
+
+    client = pyrogram_manager.client
+    chat_id = _chat_lookup_value(group.telegram_id)
+    peer = await _resolve_chat_peer_with_warmup(client, chat_id)
+    await client.invoke(
+        raw.functions.messages.DeleteScheduledMessages(peer=peer, id=[int(message_id)])
+    )
+    auto_msg.scheduled_message_id = None
+    auto_msg.last_scheduled_for = None
+    auto_msg.scheduled_target_at = None
+    return True
+
+
+async def _edit_scheduled_telegram_message(auto_msg: AutoMessage, group: Group, target_datetime: datetime) -> bool:
+    message_id = getattr(auto_msg, "scheduled_message_id", None)
+    if not message_id or not pyrogram_manager.is_connected:
+        return False
+    if auto_msg.files or _stickers_from_auto_message(auto_msg):
+        return False
+
+    client = pyrogram_manager.client
+    chat_id = _chat_lookup_value(group.telegram_id)
+    peer = await _resolve_chat_peer_with_warmup(client, chat_id)
+    await client.invoke(
+        raw.functions.messages.EditMessage(
+            peer=peer,
+            id=int(message_id),
+            message=auto_msg.message or "",
+            schedule_date=int(target_datetime.timestamp()),
+        )
+    )
+    target_key = target_datetime.isoformat(timespec="minutes")
+    auto_msg.last_scheduled_for = target_key
+    auto_msg.scheduled_target_at = target_datetime.isoformat(timespec="minutes")
+    return True
+
+
 async def _schedule_in_telegram(auto_msg: AutoMessage, group: Group, target_datetime: datetime, scheduled_cache=None):
     client = pyrogram_manager.client
     chat_id = _chat_lookup_value(group.telegram_id)
@@ -513,7 +576,11 @@ async def _schedule_in_telegram(auto_msg: AutoMessage, group: Group, target_date
     if message_key and scheduled_cache is not None:
         scheduled_cache.setdefault(chat_id, []).append(message_key)
 
+    message_ids = result.get("message_ids") or []
+    if message_ids:
+        auto_msg.scheduled_message_id = int(message_ids[0])
     auto_msg.last_scheduled_for = target_key
+    auto_msg.scheduled_target_at = target_datetime.isoformat(timespec="minutes")
     return "scheduled"
 
 
@@ -826,7 +893,7 @@ async def create_auto_message(
 
 
 @router.delete("/{auto_message_id}")
-def delete_auto_message(auto_message_id: int, db: Session = Depends(get_db)):
+async def delete_auto_message(auto_message_id: int, db: Session = Depends(get_db)):
     db_auto_msg = _auto_message_query(db).filter(AutoMessage.id == auto_message_id).first()
     if not db_auto_msg:
         raise HTTPException(status_code=404, detail="Автоповідомлення не знайдено")
@@ -834,6 +901,13 @@ def delete_auto_message(auto_message_id: int, db: Session = Depends(get_db)):
     job_id = f"auto_msg_{auto_message_id}"
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
+
+    group = db.query(Group).filter(Group.id == db_auto_msg.group_id).first()
+    if group:
+        try:
+            await _delete_scheduled_telegram_message(db_auto_msg, group)
+        except Exception as error:
+            log_event("WARNING", "AutoMsg", f"Не вдалося видалити відкладене повідомлення #{auto_message_id} у Telegram: {error}")
 
     for file_item in db_auto_msg.files:
         remove_file_quiet(auto_message_file_path(file_item.stored_filename))
@@ -843,21 +917,99 @@ def delete_auto_message(auto_message_id: int, db: Session = Depends(get_db)):
     return {"message": "Автоповідомлення видалено"}
 
 
+@router.put("/{auto_message_id}", response_model=AutoMessageResponse)
+async def update_auto_message(auto_message_id: int, payload: AutoMessageUpdatePayload, db: Session = Depends(get_db)):
+    db_auto_msg = _auto_message_query(db).filter(AutoMessage.id == auto_message_id).first()
+    if not db_auto_msg:
+        raise HTTPException(status_code=404, detail="Автоповідомлення не знайдено")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "message" in data and data["message"] is not None:
+        db_auto_msg.message = str(data["message"]).strip()
+    if "send_time" in data and data["send_time"] is not None:
+        send_time = str(data["send_time"]).strip()
+        if ":" not in send_time:
+            raise HTTPException(status_code=400, detail="Вкажіть час відправки")
+        db_auto_msg.send_time = send_time
+    if "send_day" in data and data["send_day"] is not None:
+        send_day = _normalize_send_day(str(data["send_day"]))
+        if send_day != DAILY_SEND_DAY and send_day not in DAY_MAP:
+            raise HTTPException(status_code=400, detail="Вкажіть день відправки")
+        db_auto_msg.send_day = send_day
+    if "repeat_count" in data and data["repeat_count"] is not None:
+        repeat_count = int(data["repeat_count"])
+        if repeat_count < 0:
+            raise HTTPException(status_code=400, detail="Кількість повторів не може бути від'ємною")
+        db_auto_msg.repeat_count = repeat_count
+
+    if not (db_auto_msg.message or "").strip() and not db_auto_msg.files and not _stickers_from_auto_message(db_auto_msg):
+        raise HTTPException(status_code=400, detail="Додайте текст, файл або наліпку")
+
+    group = db.query(Group).filter(Group.id == db_auto_msg.group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Групу не знайдено")
+
+    edited_in_telegram = False
+    if db_auto_msg.is_active:
+        target_datetime = _next_target_datetime(db_auto_msg)
+        if not target_datetime:
+            raise HTTPException(status_code=400, detail="Некоректний день або час відправки")
+
+        if getattr(db_auto_msg, "scheduled_message_id", None):
+            try:
+                edited_in_telegram = await _edit_scheduled_telegram_message(db_auto_msg, group, target_datetime)
+            except Exception as error:
+                db.rollback()
+                log_event("WARNING", "AutoMsg", f"Не вдалося оновити відкладене повідомлення #{auto_message_id} у Telegram: {error}")
+                raise HTTPException(status_code=502, detail=f"Не вдалося оновити повідомлення в Telegram: {error}") from error
+
+        if not edited_in_telegram:
+            db_auto_msg.last_scheduled_for = None
+            db_auto_msg.scheduled_message_id = None
+            db_auto_msg.scheduled_target_at = None
+
+    db.commit()
+    db.refresh(db_auto_msg)
+
+    if db_auto_msg.is_active:
+        schedule_auto_message(db_auto_msg)
+        if not edited_in_telegram and pyrogram_manager.is_connected:
+            await schedule_created_auto_message_in_telegram(db_auto_msg.id)
+            db.refresh(db_auto_msg)
+
+    log_event("INFO", "AutoMsg", f"Автоповідомлення #{auto_message_id} оновлено")
+    return _serialize_auto_message(db_auto_msg)
+
+
 @router.put("/{auto_message_id}/toggle")
-def toggle_auto_message(auto_message_id: int, db: Session = Depends(get_db)):
+async def toggle_auto_message(auto_message_id: int, db: Session = Depends(get_db)):
     db_auto_msg = db.query(AutoMessage).filter(AutoMessage.id == auto_message_id).first()
     if not db_auto_msg:
         raise HTTPException(status_code=404, detail="Автоповідомлення не знайдено")
 
-    db_auto_msg.is_active = 0 if db_auto_msg.is_active else 1
-    db.commit()
+    was_active = bool(db_auto_msg.is_active)
+    db_auto_msg.is_active = 0 if was_active else 1
 
-    if db_auto_msg.is_active:
-        schedule_auto_message(db_auto_msg)
-    else:
+    if was_active:
+        group = db.query(Group).filter(Group.id == db_auto_msg.group_id).first()
+        if group:
+            try:
+                await _delete_scheduled_telegram_message(db_auto_msg, group)
+            except Exception as error:
+                log_event("WARNING", "AutoMsg", f"Не вдалося прибрати відкладене повідомлення #{auto_message_id} у Telegram: {error}")
         job_id = f"auto_msg_{auto_message_id}"
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
+    else:
+        db_auto_msg.last_scheduled_for = None
+        db_auto_msg.scheduled_message_id = None
+        db_auto_msg.scheduled_target_at = None
+        schedule_auto_message(db_auto_msg)
+
+    db.commit()
+
+    if db_auto_msg.is_active and pyrogram_manager.is_connected:
+        await schedule_created_auto_message_in_telegram(db_auto_msg.id)
 
     return {"message": "Статус змінено", "is_active": db_auto_msg.is_active}
 

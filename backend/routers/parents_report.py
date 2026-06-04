@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal, get_db
 from logger import log_event
 from models import (
+    AutoMessage,
     Group,
     ParentReportCourse,
     ParentReportCourseLesson,
@@ -30,6 +31,7 @@ from models import (
 )
 from pyrogram_client import pyrogram_manager
 from routers.messages import send_pyrogram_message
+from routers import auto_messages
 from system_notifications import show_system_notification
 
 
@@ -40,6 +42,8 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_REPORT_DELAY_MINUTES = 0
 DEFAULT_REPORT_NOTIFICATION_DELAY_MINUTES = 0
 DEFAULT_DURATION_MINUTES = 90
+DEFAULT_ABSENT_FOLLOWUP_DELAY_MINUTES = 5
+DEFAULT_ABSENT_FOLLOWUP_BEFORE_LESSON_TIME = "20:00"
 AUTO_REPORT_JOB_ID = "parents_report_auto_sender"
 REPORT_NOTIFICATION_JOB_ID = "parents_report_system_notifications"
 AUTO_REPORT_INTERVAL_SECONDS = 60
@@ -167,6 +171,33 @@ SCHEDULE_HEADERS = [
 
 COURSE_HEADERS = ["Номер уроку", "Модуль", "Тема уроку", "Звіт", "Примітки до уроку"]
 
+AUTO_SEND_DAY_BY_WEEKDAY = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+UKRAINIAN_DAY_ACCUSATIVE = ["Понеділок", "Вівторок", "Середу", "Четвер", "П'ятницю", "Суботу", "Неділю"]
+
+DEFAULT_ABSENT_FOLLOWUP_TEMPLATE = """Вітаю, шановні батьки!😊
+
+👋Чекаємо на урок наших розумників у {next_lesson_day} о {next_lesson_time_dot} ⏰ за графіком !!
+
+❗️На відпрацювання об {makeup_time}🔔 {absents}!
+
+✅Прошу поставте ➕ або лайк 👍, що ознайомились та будете на уроці👩‍💻
+
+✅ Прохання попереджати, якщо когось з дітей не буде😊
+
+Всім гарних вихідних 🍰☕️"""
+
+DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE = """Вітаю, шановні батьки!😊
+
+👋Чекаємо на урок наших розумників завтра у {next_lesson_day} о {next_lesson_time_dot} ⏰ за графіком !!
+
+🇺🇦 Одягайте вишиванку або білу футболку - буде тематичний урок.
+
+✅Прошу поставте ➕ або лайк 👍, що ознайомились та будете  на  уроці👩‍💻
+
+✅ Прохання попереджати, якщо когось з дітей не буде😊
+
+Всім гарних вихідних  🦋"""
+
 
 class ReportSettingsUpdate(BaseModel):
     google_ai_api_key: str | None = None
@@ -176,6 +207,12 @@ class ReportSettingsUpdate(BaseModel):
     report_delay_minutes: int | None = None
     report_notifications_enabled: bool | None = None
     report_notification_delay_minutes: int | None = None
+    absent_followup_enabled: bool | None = None
+    absent_followup_schedule_mode: str | None = None
+    absent_followup_delay_minutes: int | None = None
+    absent_followup_before_lesson_time: str | None = None
+    absent_followup_template: str | None = None
+    no_absents_followup_template: str | None = None
     default_duration_minutes: int | None = None
     test_mode: bool | None = None
 
@@ -280,6 +317,27 @@ def _settings_response(settings: ParentReportSettings) -> dict[str, Any]:
             if getattr(settings, "report_notification_delay_minutes", None) is not None
             else DEFAULT_REPORT_NOTIFICATION_DELAY_MINUTES
         ),
+        "absent_followup_enabled": bool(getattr(settings, "absent_followup_enabled", 1)),
+        "absent_followup_schedule_mode": (
+            getattr(settings, "absent_followup_schedule_mode", None) or "after_report"
+        ),
+        "absent_followup_delay_minutes": (
+            settings.absent_followup_delay_minutes
+            if getattr(settings, "absent_followup_delay_minutes", None) is not None
+            else DEFAULT_ABSENT_FOLLOWUP_DELAY_MINUTES
+        ),
+        "absent_followup_before_lesson_time": (
+            getattr(settings, "absent_followup_before_lesson_time", None)
+            or DEFAULT_ABSENT_FOLLOWUP_BEFORE_LESSON_TIME
+        ),
+        "absent_followup_template": (
+            getattr(settings, "absent_followup_template", None)
+            or DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
+        ),
+        "no_absents_followup_template": (
+            getattr(settings, "no_absents_followup_template", None)
+            or DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE
+        ),
         "default_duration_minutes": (
             settings.default_duration_minutes
             if settings.default_duration_minutes is not None
@@ -310,6 +368,18 @@ def _get_or_create_settings(db: Session) -> ParentReportSettings:
             settings.report_notifications_enabled = 1
         if getattr(settings, "report_notification_delay_minutes", None) is None:
             settings.report_notification_delay_minutes = DEFAULT_REPORT_NOTIFICATION_DELAY_MINUTES
+        if getattr(settings, "absent_followup_enabled", None) is None:
+            settings.absent_followup_enabled = 1
+        if not getattr(settings, "absent_followup_schedule_mode", None):
+            settings.absent_followup_schedule_mode = "after_report"
+        if getattr(settings, "absent_followup_delay_minutes", None) is None:
+            settings.absent_followup_delay_minutes = DEFAULT_ABSENT_FOLLOWUP_DELAY_MINUTES
+        if not getattr(settings, "absent_followup_before_lesson_time", None):
+            settings.absent_followup_before_lesson_time = DEFAULT_ABSENT_FOLLOWUP_BEFORE_LESSON_TIME
+        if not getattr(settings, "absent_followup_template", None):
+            settings.absent_followup_template = DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
+        if not getattr(settings, "no_absents_followup_template", None):
+            settings.no_absents_followup_template = DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE
         if settings.default_duration_minutes is None:
             settings.default_duration_minutes = DEFAULT_DURATION_MINUTES
         return settings
@@ -321,6 +391,12 @@ def _get_or_create_settings(db: Session) -> ParentReportSettings:
         report_delay_minutes=DEFAULT_REPORT_DELAY_MINUTES,
         report_notifications_enabled=1,
         report_notification_delay_minutes=DEFAULT_REPORT_NOTIFICATION_DELAY_MINUTES,
+        absent_followup_enabled=1,
+        absent_followup_schedule_mode="after_report",
+        absent_followup_delay_minutes=DEFAULT_ABSENT_FOLLOWUP_DELAY_MINUTES,
+        absent_followup_before_lesson_time=DEFAULT_ABSENT_FOLLOWUP_BEFORE_LESSON_TIME,
+        absent_followup_template=DEFAULT_ABSENT_FOLLOWUP_TEMPLATE,
+        no_absents_followup_template=DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE,
         default_duration_minutes=DEFAULT_DURATION_MINUTES,
         test_mode=0,
         updated_at=_now_iso(),
@@ -1566,6 +1642,153 @@ async def _generate_ai_report(
     return text
 
 
+def _format_time_dot(dt: datetime) -> str:
+    return dt.strftime("%H.%M")
+
+
+def _render_followup_template(template: str, values: dict[str, str], default_template: str) -> str:
+    message = template or default_template
+    for key, value in values.items():
+        message = message.replace(f"{{{key}}}", value)
+    return message.strip()
+
+
+def _next_lesson_start_after_report(lesson: ParentReportLesson, schedule: dict[str, Any]) -> datetime:
+    start_dt = schedule["start_dt"]
+    return start_dt + timedelta(days=7)
+
+
+def _absent_followup_target_datetime(
+    settings: ParentReportSettings,
+    lesson: ParentReportLesson,
+    schedule: dict[str, Any],
+) -> datetime:
+    now = datetime.now(KYIV_TZ)
+    mode = getattr(settings, "absent_followup_schedule_mode", None) or "after_report"
+    delay_minutes = max(
+        0,
+        min(
+            10080,
+            int(getattr(settings, "absent_followup_delay_minutes", DEFAULT_ABSENT_FOLLOWUP_DELAY_MINUTES) or 0),
+        ),
+    )
+
+    if mode == "before_next_lesson":
+        next_start = _next_lesson_start_after_report(lesson, schedule)
+        send_time = _normalize_time(
+            getattr(settings, "absent_followup_before_lesson_time", None)
+            or DEFAULT_ABSENT_FOLLOWUP_BEFORE_LESSON_TIME
+        )
+        hour, minute = [int(part) for part in send_time.split(":", 1)]
+        target = datetime.combine(next_start.date() - timedelta(days=1), time(hour, minute), tzinfo=KYIV_TZ)
+        if target > now:
+            return target
+
+    return now + timedelta(minutes=max(1, delay_minutes))
+
+
+def _absent_followup_values(
+    lesson: ParentReportLesson,
+    schedule: dict[str, Any],
+    target_datetime: datetime,
+    absents: str,
+) -> dict[str, str]:
+    next_start = _next_lesson_start_after_report(lesson, schedule)
+    makeup_dt = next_start - timedelta(minutes=30)
+    return {
+        "group": lesson.group_name or "",
+        "course": lesson.course or "",
+        "lesson_code": lesson.lesson_code or "",
+        "lesson_count": lesson.lesson_count or "",
+        "lesson_title": lesson.lesson_title or lesson.topic or "",
+        "absents": absents.strip(),
+        "lesson_time": next_start.strftime("%H:%M"),
+        "lesson_time_dot": _format_time_dot(next_start),
+        "makeup_time": makeup_dt.strftime("%H:%M"),
+        "makeup_time_dot": _format_time_dot(makeup_dt),
+        "next_lesson_day": UKRAINIAN_DAY_ACCUSATIVE[next_start.weekday()],
+        "next_lesson_date": next_start.strftime("%d.%m.%Y"),
+        "next_lesson_time": next_start.strftime("%H:%M"),
+        "next_lesson_time_dot": _format_time_dot(next_start),
+        "send_date": target_datetime.strftime("%d.%m.%Y"),
+        "send_time": target_datetime.strftime("%H:%M"),
+    }
+
+
+def _create_report_followup_auto_message(
+    db: Session,
+    lesson: ParentReportLesson,
+    settings: ParentReportSettings,
+    telegram_group: Group,
+    schedule: dict[str, Any],
+    report_run: ParentReportRun,
+    absents: str,
+) -> AutoMessage | None:
+    clean_absents = (absents or "").strip()
+    if not getattr(settings, "absent_followup_enabled", 1):
+        return None
+
+    existing = db.query(AutoMessage).filter(
+        AutoMessage.parent_report_run_id == report_run.id,
+        AutoMessage.source.in_(["parent_report_absent_followup", "parent_report_followup"]),
+    ).first()
+    if existing:
+        return existing
+
+    followup_type = "absent_followup" if clean_absents else "regular_followup"
+    default_template = (
+        DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
+        if clean_absents
+        else DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE
+    )
+    template = (
+        getattr(settings, "absent_followup_template", None)
+        if clean_absents
+        else getattr(settings, "no_absents_followup_template", None)
+    )
+    target_datetime = _absent_followup_target_datetime(settings, lesson, schedule)
+    values = _absent_followup_values(lesson, schedule, target_datetime, clean_absents)
+    message = _render_followup_template(
+        template or default_template,
+        values,
+        default_template,
+    )
+
+    auto_msg = AutoMessage(
+        group_id=telegram_group.id,
+        message=message,
+        send_time=target_datetime.strftime("%H:%M"),
+        send_day=AUTO_SEND_DAY_BY_WEEKDAY[target_datetime.weekday()],
+        repeat_count=1,
+        sent_count=0,
+        is_active=1,
+        stickers="[]",
+        source="parent_report_followup",
+        parent_report_lesson_id=lesson.id,
+        parent_report_run_id=report_run.id,
+        scheduled_target_at=target_datetime.isoformat(timespec="minutes"),
+        metadata_json=json.dumps(
+            {
+                "type": followup_type,
+                "lesson_group_name": lesson.group_name,
+                "lesson_date": _format_run_date(schedule["lesson_date"]),
+                "lesson_code": lesson.lesson_code or "",
+                "lesson_count": lesson.lesson_count or "",
+                "absents": clean_absents,
+                "makeup_time": values["makeup_time"],
+                "next_lesson_date": values["next_lesson_date"],
+                "next_lesson_day": values["next_lesson_day"],
+                "next_lesson_time": values["next_lesson_time"],
+                "schedule_mode": getattr(settings, "absent_followup_schedule_mode", None) or "after_report",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    db.add(auto_msg)
+    db.flush()
+    return auto_msg
+
+
 def _record_report_run(
     db: Session,
     lesson: ParentReportLesson,
@@ -1578,7 +1801,7 @@ def _record_report_run(
     is_auto: bool,
     is_test: bool,
 ):
-    db.add(ParentReportRun(
+    run = ParentReportRun(
         lesson_group_name=lesson.group_name,
         lesson_date=_format_run_date(lesson_date),
         lesson_id=lesson.id,
@@ -1590,7 +1813,10 @@ def _record_report_run(
         is_auto=1 if is_auto else 0,
         is_test=1 if is_test else 0,
         created_at=_now_iso(),
-    ))
+    )
+    db.add(run)
+    db.flush()
+    return run
 
 
 def _mark_lesson_reported(db: Session, lesson: ParentReportLesson, lesson_date: date, absents: str | None):
@@ -1676,7 +1902,7 @@ async def _send_lesson_report(
             _log_report_issue("ERROR", f"Відправка звіту для '{lesson.group_name}' у '{telegram_group.name}' не вдалася: {error}")
         raise HTTPException(status_code=502, detail=error)
 
-    _record_report_run(
+    report_run = _record_report_run(
         db,
         lesson,
         schedule["lesson_date"],
@@ -1688,11 +1914,33 @@ async def _send_lesson_report(
         is_auto,
         is_test,
     )
+    followup_auto_message = None
+    if not is_test:
+        try:
+            followup_auto_message = _create_report_followup_auto_message(
+                db,
+                lesson,
+                settings,
+                telegram_group,
+                schedule,
+                report_run,
+                absents or "",
+            )
+        except Exception as error:
+            _log_report_issue(
+                "WARNING",
+                f"Не вдалося створити автоповідомлення після звіту '{lesson.group_name}': {error}",
+            )
     if not is_test:
         _mark_lesson_reported(db, lesson, schedule["lesson_date"], absents)
         await _refresh_lesson_from_source(db, lesson)
     db.commit()
     db.refresh(lesson)
+
+    if followup_auto_message:
+        auto_messages.schedule_auto_message(followup_auto_message)
+        if pyrogram_manager.is_connected:
+            await auto_messages.schedule_created_auto_message_in_telegram(followup_auto_message.id)
 
     log_event(
         "INFO",
@@ -1907,6 +2155,25 @@ def update_report_settings(payload: ReportSettingsUpdate, db: Session = Depends(
         settings.report_notifications_enabled = 1 if payload.report_notifications_enabled else 0
     if payload.report_notification_delay_minutes is not None:
         settings.report_notification_delay_minutes = max(0, min(240, int(payload.report_notification_delay_minutes)))
+    if payload.absent_followup_enabled is not None:
+        settings.absent_followup_enabled = 1 if payload.absent_followup_enabled else 0
+    if payload.absent_followup_schedule_mode is not None:
+        mode = payload.absent_followup_schedule_mode.strip()
+        settings.absent_followup_schedule_mode = mode if mode in {"after_report", "before_next_lesson"} else "after_report"
+    if payload.absent_followup_delay_minutes is not None:
+        settings.absent_followup_delay_minutes = max(0, min(10080, int(payload.absent_followup_delay_minutes)))
+    if payload.absent_followup_before_lesson_time is not None:
+        settings.absent_followup_before_lesson_time = _normalize_time(
+            payload.absent_followup_before_lesson_time
+            or DEFAULT_ABSENT_FOLLOWUP_BEFORE_LESSON_TIME
+        )
+    if payload.absent_followup_template is not None:
+        settings.absent_followup_template = payload.absent_followup_template.strip() or DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
+    if payload.no_absents_followup_template is not None:
+        settings.no_absents_followup_template = (
+            payload.no_absents_followup_template.strip()
+            or DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE
+        )
     if payload.default_duration_minutes is not None:
         settings.default_duration_minutes = max(30, min(360, int(payload.default_duration_minutes)))
     if payload.test_mode is not None:

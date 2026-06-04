@@ -213,15 +213,6 @@ function App() {
                             </li>
                             <li>
                                 <NavLink
-                                    to="/settings"
-                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                                >
-                                    {Icons.settings}
-                                    <span>Налаштування</span>
-                                </NavLink>
-                            </li>
-                            <li>
-                                <NavLink
                                     to="/templates"
                                     className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
                                 >
@@ -236,6 +227,17 @@ function App() {
                                 >
                                     {Icons.logs}
                                     <span>Журнал подій</span>
+                                </NavLink>
+                            </li>
+                        </ul>
+                        <ul className="nav-menu nav-menu-service">
+                            <li>
+                                <NavLink
+                                    to="/settings"
+                                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                >
+                                    {Icons.settings}
+                                    <span>Налаштування</span>
                                 </NavLink>
                             </li>
                         </ul>

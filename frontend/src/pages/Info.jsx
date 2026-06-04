@@ -75,10 +75,9 @@ function Info() {
         : `У цій версії v${latestVersion || '...'}`
 
     return (
-        <div>
+        <div className="info-page">
             <div className="page-header">
                 <h2>Інфо</h2>
-                <p>Короткий старт для нового користувача та інформація про версію програми.</p>
             </div>
 
             <div className="info-layout">
@@ -106,70 +105,81 @@ function Info() {
                         </div>
                     </section>
 
+                    <section className="card info-card info-video-card">
+                        <span className="info-support-icon">▶</span>
+                        <div>
+                            <h3 className="card-title">Відеоінструкція</h3>
+                            <p>Скоро тут буде короткий відеогайд.</p>
+                        </div>
+                    </section>
+                </div>
+
+                <div className="info-right-column">
+                    <section className="card info-card">
+                        <div className="info-card-header">
+                            <span className="info-card-icon info-card-icon-version">v</span>
+                            <div>
+                                <h3 className="card-title">Версія програми</h3>
+                            </div>
+                        </div>
+
+                        <div className="info-version-grid">
+                            <div>
+                                <span>Встановлена</span>
+                                <strong>v{versionInfo?.current_version || '...'}</strong>
+                            </div>
+                            <div>
+                                <span>Онлайн</span>
+                                <strong>v{latestVersion || '...'}</strong>
+                            </div>
+                        </div>
+
+                        <div className={`info-version-status ${versionInfo?.update_available ? 'update' : 'ok'}`}>
+                            {loading
+                                ? 'Перевіряємо версію...'
+                                : versionInfo?.update_available
+                                    ? `Доступна нова версія v${versionInfo.latest_version}`
+                                    : 'Встановлена версія актуальна'}
+                        </div>
+
+                        <div className="info-changelog">
+                            <h4>{changelogTitle}</h4>
+                            {error && changelogLines.length === 0 ? (
+                                <p className="info-muted">{error}</p>
+                            ) : changelogLines.length > 0 ? (
+                                <ul>
+                                    {changelogLines.map((line, index) => (
+                                        <li key={`${line}-${index}`}>{line}</li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="info-muted">Список змін поки порожній.</p>
+                            )}
+                            {error && changelogLines.length > 0 && (
+                                <p className="info-muted">{error}</p>
+                            )}
+                        </div>
+                    </section>
+
                     <section className="card info-card info-feedback-card">
                         <div>
                             <h3 className="card-title">Знайшов помилку?</h3>
-                            <p>Збережи log-файл у налаштуваннях і напиши мені, щоб я міг швидше знайти причину.</p>
+                            <p>Збережи log-файл у налаштуваннях і напиши мені.</p>
                         </div>
                         <a
                             className="info-feedback-button"
                             href="https://t.me/Maksimelyann"
                             target="_blank"
                             rel="noreferrer"
+                            aria-label="Звʼязатися в Telegram"
+                            title="Звʼязатися в Telegram"
                         >
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M21.7 3.35 2.9 10.6c-1.28.5-1.27 1.2-.23 1.52l4.82 1.5 1.85 5.67c.24.67.12.94.82.94.54 0 .78-.25 1.08-.54l2.6-2.53 5.4 3.99c.99.55 1.7.27 1.95-.92l3.53-16.62c.36-1.44-.55-2.1-1.52-1.69ZM8.24 13.27l10.56-6.66c.53-.32 1.02-.15.62.2l-9.04 8.17-.35 3.76-1.79-5.47Z" />
                             </svg>
-                            Звʼязатися в Telegram
                         </a>
                     </section>
                 </div>
-
-                <section className="card info-card">
-                    <div className="info-card-header">
-                        <span className="info-card-icon info-card-icon-version">v</span>
-                        <div>
-                            <h3 className="card-title">Версія програми</h3>
-                        </div>
-                    </div>
-
-                    <div className="info-version-grid">
-                        <div>
-                            <span>Встановлена</span>
-                            <strong>v{versionInfo?.current_version || '...'}</strong>
-                        </div>
-                        <div>
-                            <span>Онлайн</span>
-                            <strong>v{latestVersion || '...'}</strong>
-                        </div>
-                    </div>
-
-                    <div className={`info-version-status ${versionInfo?.update_available ? 'update' : 'ok'}`}>
-                        {loading
-                            ? 'Перевіряємо версію...'
-                            : versionInfo?.update_available
-                                ? `Доступна нова версія v${versionInfo.latest_version}`
-                                : 'Встановлена версія актуальна'}
-                    </div>
-
-                    <div className="info-changelog">
-                        <h4>{changelogTitle}</h4>
-                        {error && changelogLines.length === 0 ? (
-                            <p className="info-muted">{error}</p>
-                        ) : changelogLines.length > 0 ? (
-                            <ul>
-                                {changelogLines.map((line, index) => (
-                                    <li key={`${line}-${index}`}>{line}</li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <p className="info-muted">Список змін поки порожній.</p>
-                        )}
-                        {error && changelogLines.length > 0 && (
-                            <p className="info-muted">{error}</p>
-                        )}
-                    </div>
-                </section>
             </div>
         </div>
     )

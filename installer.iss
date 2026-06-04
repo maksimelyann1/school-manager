@@ -1,6 +1,6 @@
 [Setup]
 AppName=School Manager
-AppVersion=2.1
+AppVersion=2.2
 DefaultDirName={autopf}\SchoolManager
 DefaultGroupName=School Manager
 UninstallDisplayIcon={app}\SchoolManager.exe
@@ -29,7 +29,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; The main executable and all its dependencies created by PyInstaller
-Source: "dist\SchoolManager\*"; DestDir: "{app}"; Excludes: "*.db,*.db-shm,*.db-wal,*.session,*.session-journal,*.log,school_manager.db*,user_session*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\SchoolManager\*"; DestDir: "{app}"; Excludes: "*.db,*.db-shm,*.db-wal,*.session,*.session-journal,*.session-wal,*.session-shm,*.log,school_manager.db*,user_session*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\School Manager"; Filename: "{app}\SchoolManager.exe"

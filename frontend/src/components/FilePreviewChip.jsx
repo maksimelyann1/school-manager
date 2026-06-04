@@ -134,7 +134,7 @@ function FilePreviewChip({
     const fileType = getFileType(file)
     const serverBacked = isServerFile(file)
     const missing = file?.exists === false
-    const canOpenInWindows = serverBacked && !missing
+    const canOpenInSystemApp = serverBacked && !missing
     const kind = useMemo(() => {
         if (isImageFile(file)) return 'image'
         if (isVideoFile(file)) return 'video'
@@ -218,8 +218,8 @@ function FilePreviewChip({
             onOpenError?.('Файл не знайдено на диску.')
             return
         }
-        if (!canOpenInWindows) {
-            onOpenError?.('Відкриття у Windows доступне для файлів, які вже збережені у шаблоні або кеші.')
+        if (!canOpenInSystemApp) {
+            onOpenError?.('Відкриття у системній програмі доступне для файлів, які вже збережені у шаблоні або кеші.')
             return
         }
 
@@ -243,19 +243,19 @@ function FilePreviewChip({
 
     const label = missing
         ? `${fileName} - файл не знайдено`
-        : canOpenInWindows
-            ? `${fileName} - відкрити у Windows`
+        : canOpenInSystemApp
+            ? `${fileName} - відкрити у системній програмі`
             : fileName
 
     return (
         <div
-            className={`file-preview-chip ${compact ? 'compact' : ''} ${missing ? 'missing' : ''} ${canOpenInWindows ? 'openable' : ''} ${!removable || !onRemove ? 'no-remove' : ''}`}
+            className={`file-preview-chip ${compact ? 'compact' : ''} ${missing ? 'missing' : ''} ${canOpenInSystemApp ? 'openable' : ''} ${!removable || !onRemove ? 'no-remove' : ''}`}
             title={label}
             onClick={openFile}
-            role={canOpenInWindows ? 'button' : undefined}
-            tabIndex={canOpenInWindows ? 0 : undefined}
+            role={canOpenInSystemApp ? 'button' : undefined}
+            tabIndex={canOpenInSystemApp ? 0 : undefined}
             onKeyDown={(e) => {
-                if (canOpenInWindows && (e.key === 'Enter' || e.key === ' ')) {
+                if (canOpenInSystemApp && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault()
                     openFile()
                 }

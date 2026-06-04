@@ -58,6 +58,12 @@ class AutoMessage(Base):
     is_active = Column(Integer, default=1)  # 1 = активне, 0 = вимкнене
     stickers = Column(Text, nullable=False, default="[]")  # JSON наліпок Telegram
     last_scheduled_for = Column(String, nullable=True)  # ISO час останнього Telegram-планування
+    source = Column(String, nullable=False, default="manual")
+    parent_report_lesson_id = Column(Integer, nullable=True)
+    parent_report_run_id = Column(Integer, nullable=True)
+    scheduled_message_id = Column(Integer, nullable=True)
+    scheduled_target_at = Column(String, nullable=True)
+    metadata_json = Column(Text, nullable=True)
     
     # Зв'язок з групою
     group = relationship("Group", back_populates="auto_messages")
@@ -129,6 +135,12 @@ class ParentReportSettings(Base):
     report_delay_minutes = Column(Integer, nullable=False, default=0)
     report_notifications_enabled = Column(Integer, nullable=False, default=1)
     report_notification_delay_minutes = Column(Integer, nullable=False, default=0)
+    absent_followup_enabled = Column(Integer, nullable=False, default=1)
+    absent_followup_schedule_mode = Column(String, nullable=False, default="after_report")
+    absent_followup_delay_minutes = Column(Integer, nullable=False, default=5)
+    absent_followup_before_lesson_time = Column(String, nullable=False, default="20:00")
+    absent_followup_template = Column(Text, nullable=True)
+    no_absents_followup_template = Column(Text, nullable=True)
     default_duration_minutes = Column(Integer, nullable=False, default=90)
     test_mode = Column(Integer, nullable=False, default=0)
     updated_at = Column(String, nullable=True)
