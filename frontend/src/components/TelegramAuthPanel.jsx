@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { API_URL } from '../api/client'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 
 function TelegramAuthPanel({
     mode = 'settings',

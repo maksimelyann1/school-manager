@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { API_URL } from '../api/client'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 const VIDEO_THUMBNAIL_LIMIT = 2
 const MAX_VIDEO_THUMBNAIL_BYTES = 80 * 1024 * 1024
 

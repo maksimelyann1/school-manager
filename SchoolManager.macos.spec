@@ -15,7 +15,17 @@ datas = [
     (data_path("frontend", "dist"), data_path("frontend", "dist")),
 ]
 binaries = []
-hiddenimports = ["main", "tgcrypto"]
+hiddenimports = [
+    "main",
+    "tgcrypto",
+    "objc",
+    "Foundation",
+    "AppKit",
+    "Cocoa",
+    "Quartz",
+    "WebKit",
+    "pystray._darwin",
+]
 
 for package_name in (
     "fastapi",
@@ -36,6 +46,18 @@ for package_name in (
 
 datas += copy_metadata("apscheduler")
 hiddenimports += collect_submodules("pystray")
+hiddenimports += collect_submodules("objc")
+
+for metadata_name in (
+    "pyobjc-core",
+    "pyobjc-framework-Cocoa",
+    "pyobjc-framework-Quartz",
+    "pyobjc-framework-WebKit",
+):
+    try:
+        datas += copy_metadata(metadata_name)
+    except Exception:
+        pass
 
 
 a = Analysis(
@@ -89,8 +111,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "School Manager",
         "CFBundleDisplayName": "School Manager",
-        "CFBundleShortVersionString": "2.2",
-        "CFBundleVersion": "2.2.0",
+        "CFBundleShortVersionString": "2.3",
+        "CFBundleVersion": "2.3.0",
         "NSHighResolutionCapable": True,
     },
 )

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import FloatingPanel from '../components/FloatingPanel'
 import { NumberStepper } from '../components/FormControls'
+import ResizableTable from '../components/ResizableTable'
 import TelegramSendIcon from '../components/TelegramSendIcon'
+import { useToast } from '../components/ToastProvider'
 import { getSearchVariations } from '../utils/search'
+import { API_URL } from '../api/client'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 
 const TABS = [
     { id: 'pending', label: 'Потребують звіт' },
@@ -28,7 +30,7 @@ const SCHEDULE_COLUMNS = [
     { id: 'absents', label: 'Відсутні', width: 150, minWidth: 110 },
     { id: 'lesson_title', label: 'Тема уроку', width: 280, minWidth: 170 },
     { id: 'duration', label: 'Тривалість', width: 96, minWidth: 82 },
-    { id: 'actions', label: '', width: 64, minWidth: 56 }
+    { id: 'actions', label: '', width: 64, minWidth: 56, cellClassName: 'parents-actions-cell' }
 ]
 
 const READONLY_SCHEDULE_COLUMNS = SCHEDULE_COLUMNS.filter(column => column.id !== 'actions')
@@ -243,9 +245,10 @@ function ParentsReport() {
     const [workbook, setWorkbook] = useState({ schedule: [], courses: [], sheet_names: [] })
     const [groups, setGroups] = useState([])
     const [runs, setRuns] = useState([])
-    const [alert, setAlert] = useState(null)
+    const { showToast } = useToast()
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState('')
+    const [sendingReportIds, setSendingReportIds] = useState(() => new Set())
     const [absentsByLesson, setAbsentsByLesson] = useState({})
     const [postponeModal, setPostponeModal] = useState(null)
     const [newCourseName, setNewCourseName] = useState('')
@@ -292,12 +295,6 @@ function ParentsReport() {
     }, [columnWidths])
 
     useEffect(() => {
-        if (!alert) return undefined
-        const timer = window.setTimeout(() => setAlert(null), 4500)
-        return () => window.clearTimeout(timer)
-    }, [alert])
-
-    useEffect(() => {
         if (!postponeModal) return undefined
         const handlePointerDown = (event) => {
             if (
@@ -319,11 +316,11 @@ function ParentsReport() {
     }, [activeSheet, courses])
 
     const showError = (message) => {
-        setAlert({ type: 'error', text: message })
+        showToast({ type: 'error', text: message })
     }
 
     const showSuccess = (message) => {
-        setAlert({ type: 'success', text: message })
+        showToast({ type: 'success', text: message })
     }
 
     const requestJson = async (url, options = {}) => {
@@ -744,9 +741,17 @@ function ParentsReport() {
     }
 
     const sendReport = async (lessonId) => {
-        if (reportSendLockRef.current.size > 0) return
+        if (reportSendLockRef.current.has(lessonId)) return
+        const alreadyQueueing = reportSendLockRef.current.size > 0
         reportSendLockRef.current.add(lessonId)
-        setBusy(`send-${lessonId}`)
+        setSendingReportIds(prev => {
+            const next = new Set(prev)
+            next.add(lessonId)
+            return next
+        })
+        if (alreadyQueueing) {
+            showSuccess('\u0417\u0432\u0456\u0442 \u0434\u043e\u0434\u0430\u043d\u043e \u0432 \u0447\u0435\u0440\u0433\u0443')
+        }
         try {
             const currentAbsents = absentsByLesson[lessonId] ?? ''
             await requestJson(`${API_URL}/parents-report/send`, {
@@ -768,7 +773,11 @@ function ParentsReport() {
             showError(error.message)
         } finally {
             reportSendLockRef.current.delete(lessonId)
-            setBusy('')
+            setSendingReportIds(prev => {
+                const next = new Set(prev)
+                next.delete(lessonId)
+                return next
+            })
         }
     }
 
@@ -872,74 +881,11 @@ function ParentsReport() {
     }
 
     const getSendBlockedReason = (lesson, isSending) => {
-        if (isSending) return 'Звіт генерується і відправляється'
+        if (isSending) return 'Звіт уже в черзі або відправляється'
         if (busy) return 'Зачекайте, виконується інша дія'
         if (!lesson.mapping_ready) return 'Спочатку виберіть Telegram-групу в базі даних'
         if (!settings?.google_ai_api_key_set) return 'Додайте Google AI API key в основних налаштуваннях'
         return ''
-    }
-
-    const getTableWidth = (columns) => columns.reduce((sum, column) => sum + (columnWidths[column.id] || column.width), 0)
-
-    const toggleScheduleSort = (key) => {
-        setScheduleSort(prev => ({
-            key,
-            direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
-        }))
-    }
-
-    const startColumnResize = (event, column) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const startX = event.clientX
-        const startWidth = columnWidths[column.id] || column.width
-        const minWidth = column.minWidth || 72
-
-        const handleMove = (moveEvent) => {
-            const delta = moveEvent.clientX - startX
-            const nextWidth = Math.max(minWidth, Math.round(startWidth + delta))
-            setColumnWidths(prev => ({ ...prev, [column.id]: nextWidth }))
-        }
-
-        const handleUp = () => {
-            window.removeEventListener('pointermove', handleMove)
-            window.removeEventListener('pointerup', handleUp)
-            window.removeEventListener('pointercancel', handleUp)
-            document.body.classList.remove('is-resizing-table-column')
-        }
-
-        document.body.classList.add('is-resizing-table-column')
-        window.addEventListener('pointermove', handleMove)
-        window.addEventListener('pointerup', handleUp, { once: true })
-        window.addEventListener('pointercancel', handleUp, { once: true })
-    }
-
-    const renderHeaderCell = (column) => {
-        const isSorted = scheduleSort.key === column.sortKey
-        return (
-            <th key={column.id}>
-                <div className="parents-th-content">
-                    {column.sortKey ? (
-                        <button
-                            type="button"
-                            className={`parents-sort-btn ${isSorted ? 'active' : ''}`}
-                            onClick={() => toggleScheduleSort(column.sortKey)}
-                            title={`Сортувати: ${column.label}`}
-                        >
-                            <span>{column.label}</span>
-                            <span className="parents-sort-mark">{isSorted ? (scheduleSort.direction === 'asc' ? '↑' : '↓') : ''}</span>
-                        </button>
-                    ) : (
-                        <span className="parents-th-label">{column.label}</span>
-                    )}
-                    <span
-                        className="parents-col-resizer"
-                        onPointerDown={(event) => startColumnResize(event, column)}
-                        title="Змінити ширину колонки"
-                    />
-                </div>
-            </th>
-        )
     }
 
     const renderDeleteButton = (onClick, disabled = false) => (
@@ -999,110 +945,111 @@ function ParentsReport() {
     }
 
     const renderReadonlyScheduleTable = () => (
-        <div className="parents-grid-wrap">
-            <table className="table parents-table parents-edit-table parents-readonly-table" style={{ width: getTableWidth(READONLY_SCHEDULE_COLUMNS) }}>
-                <colgroup>
-                    {READONLY_SCHEDULE_COLUMNS.map(column => (
-                        <col key={column.id} style={{ width: columnWidths[column.id] || column.width }} />
-                    ))}
-                </colgroup>
-                <thead>
-                    <tr>{READONLY_SCHEDULE_COLUMNS.map(renderHeaderCell)}</tr>
-                </thead>
-                <tbody>
-                    {sortedLessons.length === 0 ? (
-                        <tr>
-                            <td colSpan={READONLY_SCHEDULE_COLUMNS.length}>Розклад поки порожній. Імпортуй XLSX у вкладці “База даних”.</td>
-                        </tr>
-                    ) : sortedLessons.map(lesson => (
-                        <tr key={lesson.id}>
-                            {READONLY_SCHEDULE_COLUMNS.map(column => (
-                                <td key={column.id}>{renderReadOnlyScheduleCell(lesson, column)}</td>
-                            ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+        <ResizableTable
+            columns={READONLY_SCHEDULE_COLUMNS}
+            rows={sortedLessons}
+            columnWidths={columnWidths}
+            onColumnWidthsChange={setColumnWidths}
+            sort={scheduleSort}
+            onSortChange={setScheduleSort}
+            tableClassName="table parents-table parents-edit-table parents-readonly-table"
+            emptyMessage={'\u0420\u043e\u0437\u043a\u043b\u0430\u0434 \u043f\u043e\u043a\u0438 \u043f\u043e\u0440\u043e\u0436\u043d\u0456\u0439. \u0406\u043c\u043f\u043e\u0440\u0442\u0443\u0439 XLSX \u0443 \u0432\u043a\u043b\u0430\u0434\u0446\u0456 \u201c\u0411\u0430\u0437\u0430 \u0434\u0430\u043d\u0438\u0445\u201d.'}
+            renderCell={renderReadOnlyScheduleCell}
+        />
     )
 
-    const renderScheduleTable = () => (
-        <div className="parents-grid-wrap">
-            <table className="table parents-table parents-edit-table" style={{ width: getTableWidth(SCHEDULE_COLUMNS) }}>
-                <colgroup>
-                    {SCHEDULE_COLUMNS.map(column => (
-                        <col key={column.id} style={{ width: columnWidths[column.id] || column.width }} />
+    const renderEditableScheduleCell = (lesson, column) => {
+        const courseOptions = courses.some(course => course.name === lesson.course)
+            ? courses
+            : [...courses, { id: 'current-' + lesson.id, name: lesson.course }]
+
+        if (column.id === 'group') {
+            return (
+                <>
+                    <GroupMappingCell
+                        lesson={lesson}
+                        groups={groups}
+                        onSelect={(group) => patchLesson(lesson.id, { telegram_group_id: group.id })}
+                    />
+                    {renderPostponeBadge(lesson)}
+                </>
+            )
+        }
+
+        if (column.id === 'day') {
+            return (
+                <select
+                    className="parents-cell-input"
+                    value={lesson.day || 'ПН'}
+                    onChange={(event) => patchLesson(lesson.id, { day: event.target.value })}
+                >
+                    {DAYS.map(day => <option key={day} value={day}>{day}</option>)}
+                </select>
+            )
+        }
+
+        if (column.id === 'time') {
+            return <EditableText value={lesson.start_time} onSave={(value) => patchLesson(lesson.id, { start_time: value })} />
+        }
+
+        if (column.id === 'course') {
+            return (
+                <select
+                    className="parents-cell-input parents-course-select"
+                    value={lesson.course || ''}
+                    onChange={(event) => patchLesson(lesson.id, { course: event.target.value })}
+                >
+                    <option value="">{'\u041a\u0443\u0440\u0441 \u043d\u0435 \u0432\u0438\u0431\u0440\u0430\u043d\u043e'}</option>
+                    {courseOptions.filter(course => course.name).map(course => (
+                        <option key={course.id || course.name} value={course.name}>{course.name}</option>
                     ))}
-                </colgroup>
-                <thead>
-                    <tr>{SCHEDULE_COLUMNS.map(renderHeaderCell)}</tr>
-                </thead>
-                <tbody>
-                    {sortedLessons.map(lesson => {
-                        const courseOptions = courses.some(course => course.name === lesson.course)
-                            ? courses
-                            : [...courses, { id: `current-${lesson.id}`, name: lesson.course }]
-                        return (
-                            <tr key={lesson.id}>
-                                <td className="parents-group-td">
-                                    <GroupMappingCell
-                                        lesson={lesson}
-                                        groups={groups}
-                                        onSelect={(group) => patchLesson(lesson.id, { telegram_group_id: group.id })}
-                                    />
-                                    {renderPostponeBadge(lesson)}
-                                </td>
-                                <td>
-                                    <select
-                                        className="parents-cell-input"
-                                        value={lesson.day || 'ПН'}
-                                        onChange={(event) => patchLesson(lesson.id, { day: event.target.value })}
-                                    >
-                                        {DAYS.map(day => <option key={day} value={day}>{day}</option>)}
-                                    </select>
-                                </td>
-                                <td>
-                                    <EditableText value={lesson.start_time} onSave={(value) => patchLesson(lesson.id, { start_time: value })} />
-                                </td>
-                                <td>
-                                    <select
-                                        className="parents-cell-input parents-course-select"
-                                        value={lesson.course || ''}
-                                        onChange={(event) => patchLesson(lesson.id, { course: event.target.value })}
-                                    >
-                                        <option value="">Курс не вибрано</option>
-                                        {courseOptions.filter(course => course.name).map(course => (
-                                            <option key={course.id || course.name} value={course.name}>{course.name}</option>
-                                        ))}
-                                    </select>
-                                </td>
-                                <td>
-                                    <EditableText value={lesson.lesson_code} onSave={(value) => patchLesson(lesson.id, { lesson_code: value })} />
-                                </td>
-                                <td>
-                                    <EditableText value={lesson.lesson_count} onSave={(value) => patchLesson(lesson.id, { lesson_count: value })} />
-                                </td>
-                                <td>
-                                    <EditableText value={lesson.last_report_date} onSave={(value) => patchLesson(lesson.id, { last_report_date: value })} placeholder="DD-MM-YYYY" />
-                                </td>
-                                <td>
-                                    <EditableText value={lesson.absents} onSave={(value) => patchLesson(lesson.id, { absents: value })} />
-                                </td>
-                                <td>
-                                    <EditableText value={lesson.lesson_title} onSave={(value) => patchLesson(lesson.id, { lesson_title: value, topic: value })} />
-                                </td>
-                                <td>
-                                    <EditableText type="number" value={lesson.duration_minutes} onSave={(value) => patchLesson(lesson.id, { duration_minutes: Number(value || 90) })} />
-                                </td>
-                                <td className="parents-actions-cell">
-                                    {renderDeleteButton(() => deleteScheduleRow(lesson.id), !!busy)}
-                                </td>
-                            </tr>
-                        )
-                    })}
-                </tbody>
-            </table>
-        </div>
+                </select>
+            )
+        }
+
+        if (column.id === 'lesson_code') {
+            return <EditableText value={lesson.lesson_code} onSave={(value) => patchLesson(lesson.id, { lesson_code: value })} />
+        }
+
+        if (column.id === 'lesson_count') {
+            return <EditableText value={lesson.lesson_count} onSave={(value) => patchLesson(lesson.id, { lesson_count: value })} />
+        }
+
+        if (column.id === 'report_date') {
+            return <EditableText value={lesson.last_report_date} onSave={(value) => patchLesson(lesson.id, { last_report_date: value })} placeholder="DD-MM-YYYY" />
+        }
+
+        if (column.id === 'absents') {
+            return <EditableText value={lesson.absents} onSave={(value) => patchLesson(lesson.id, { absents: value })} />
+        }
+
+        if (column.id === 'lesson_title') {
+            return <EditableText value={lesson.lesson_title} onSave={(value) => patchLesson(lesson.id, { lesson_title: value, topic: value })} />
+        }
+
+        if (column.id === 'duration') {
+            return <EditableText type="number" value={lesson.duration_minutes} onSave={(value) => patchLesson(lesson.id, { duration_minutes: Number(value || 90) })} />
+        }
+
+        if (column.id === 'actions') {
+            return renderDeleteButton(() => deleteScheduleRow(lesson.id), !!busy)
+        }
+
+        return null
+    }
+
+    const renderScheduleTable = () => (
+        <ResizableTable
+            columns={SCHEDULE_COLUMNS}
+            rows={sortedLessons}
+            columnWidths={columnWidths}
+            onColumnWidthsChange={setColumnWidths}
+            sort={scheduleSort}
+            onSortChange={setScheduleSort}
+            tableClassName="table parents-table parents-edit-table"
+            emptyMessage={'\u0420\u043e\u0437\u043a\u043b\u0430\u0434 \u043f\u043e\u0440\u043e\u0436\u043d\u0456\u0439'}
+            renderCell={renderEditableScheduleCell}
+        />
     )
 
     const renderCoursesSheet = () => (
@@ -1208,12 +1155,6 @@ function ParentsReport() {
                 </button>
             </div>
 
-            {alert && (
-                <div className={`alert ${alert.type === 'success' ? 'alert-success' : 'alert-error'}`}>
-                    <span>{alert.text}</span>
-                </div>
-            )}
-
             <div className="parents-report-summary">
                 <div className="card parents-stat parents-stat-primary">
                     <div className="parents-stat-icon" aria-hidden="true">
@@ -1301,7 +1242,7 @@ function ParentsReport() {
                     ) : (
                         <div className="parents-pending-list">
                             {pending.map(lesson => {
-                                const isSending = busy === `send-${lesson.id}`
+                                const isSending = sendingReportIds.has(lesson.id)
                                 const sendBlockedReason = getSendBlockedReason(lesson, isSending)
                                 return (
                                     <article key={lesson.id} className="parents-report-item">
@@ -1342,7 +1283,7 @@ function ParentsReport() {
                                                     disabled={!!sendBlockedReason}
                                                     title={sendBlockedReason || 'Згенерувати звіт через Gemini і відправити в Telegram'}
                                                 >
-                                                    {isSending ? 'В процесі...' : (
+                                                    {isSending ? 'В черзі...' : (
                                                         <>
                                                             <TelegramSendIcon />
                                                             <span>Відправити</span>

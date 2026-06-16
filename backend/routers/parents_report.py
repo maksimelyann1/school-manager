@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import os
@@ -5,6 +6,7 @@ import re
 import tempfile
 import zipfile
 from datetime import date, datetime, time, timedelta
+from time import monotonic
 from typing import Any
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
@@ -51,6 +53,7 @@ SOURCE_SHEET_ID_PARTS = ("1KXiiGr1z4", "Xpi039gYgD", "Zj9twSm5XONl", "HaymDsrOzK
 SOURCE_CACHE_TTL = timedelta(hours=6)
 _source_course_lessons_cache: dict[str, list[dict[str, Any]]] = {}
 _source_cache_loaded_at: datetime | None = None
+_ai_report_lock = asyncio.Lock()
 
 REPORT_LOG_MODULE = "ParentsReport"
 
@@ -1598,16 +1601,27 @@ async def _generate_ai_report(
     model = (settings.google_ai_model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+    queued_at = monotonic()
+    if _ai_report_lock.locked():
+        _log_report_issue("INFO", f"\u0417\u0432\u0456\u0442 \u0434\u043b\u044f '{lesson.group_name}' \u0434\u043e\u0434\u0430\u043d\u043e \u0432 \u0447\u0435\u0440\u0433\u0443 Google AI")
+
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                url,
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json={
-                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.45},
-                },
-            )
+        async with _ai_report_lock:
+            wait_seconds = round(monotonic() - queued_at, 2)
+            if wait_seconds >= 0.2:
+                _log_report_issue(
+                    "INFO",
+                    f"\u0413\u0435\u043d\u0435\u0440\u0430\u0446\u0456\u044f \u0437\u0432\u0456\u0442\u0443 \u0434\u043b\u044f '{lesson.group_name}' \u0441\u0442\u0430\u0440\u0442\u0443\u0432\u0430\u043b\u0430 \u0437 \u0447\u0435\u0440\u0433\u0438 Google AI; \u043e\u0447\u0456\u043a\u0443\u0432\u0430\u043d\u043d\u044f {wait_seconds} \u0441",
+                )
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    url,
+                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                    json={
+                        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.45},
+                    },
+                )
     except httpx.HTTPError as error:
         detail = f"Помилка підключення до Google AI: {error}"
         if not is_auto:
@@ -1658,14 +1672,8 @@ def _next_lesson_start_after_report(lesson: ParentReportLesson, schedule: dict[s
     return start_dt + timedelta(days=7)
 
 
-def _absent_followup_target_datetime(
-    settings: ParentReportSettings,
-    lesson: ParentReportLesson,
-    schedule: dict[str, Any],
-) -> datetime:
-    now = datetime.now(KYIV_TZ)
-    mode = getattr(settings, "absent_followup_schedule_mode", None) or "after_report"
-    delay_minutes = max(
+def _absent_followup_delay_minutes(settings: ParentReportSettings) -> int:
+    return max(
         0,
         min(
             10080,
@@ -1673,8 +1681,25 @@ def _absent_followup_target_datetime(
         ),
     )
 
+
+def _absent_followup_plan_after_datetime(settings: ParentReportSettings) -> datetime:
+    mode = getattr(settings, "absent_followup_schedule_mode", None) or "after_report"
+    if mode != "after_report":
+        return datetime.now(KYIV_TZ)
+    return datetime.now(KYIV_TZ) + timedelta(minutes=_absent_followup_delay_minutes(settings))
+
+
+def _absent_followup_target_datetime(
+    settings: ParentReportSettings,
+    lesson: ParentReportLesson,
+    schedule: dict[str, Any],
+) -> datetime:
+    now = datetime.now(KYIV_TZ)
+    mode = getattr(settings, "absent_followup_schedule_mode", None) or "after_report"
+    plan_after = _absent_followup_plan_after_datetime(settings)
+    next_start = _next_lesson_start_after_report(lesson, schedule)
+
     if mode == "before_next_lesson":
-        next_start = _next_lesson_start_after_report(lesson, schedule)
         send_time = _normalize_time(
             getattr(settings, "absent_followup_before_lesson_time", None)
             or DEFAULT_ABSENT_FOLLOWUP_BEFORE_LESSON_TIME
@@ -1684,7 +1709,14 @@ def _absent_followup_target_datetime(
         if target > now:
             return target
 
-    return now + timedelta(minutes=max(1, delay_minutes))
+    target = datetime.combine(
+        next_start.date() - timedelta(days=1),
+        time(next_start.hour, next_start.minute),
+        tzinfo=KYIV_TZ,
+    )
+    if target <= plan_after:
+        return plan_after + timedelta(minutes=1)
+    return target
 
 
 def _absent_followup_values(
@@ -1747,6 +1779,7 @@ def _create_report_followup_auto_message(
         else getattr(settings, "no_absents_followup_template", None)
     )
     target_datetime = _absent_followup_target_datetime(settings, lesson, schedule)
+    plan_after_datetime = _absent_followup_plan_after_datetime(settings)
     values = _absent_followup_values(lesson, schedule, target_datetime, clean_absents)
     message = _render_followup_template(
         template or default_template,
@@ -1779,6 +1812,10 @@ def _create_report_followup_auto_message(
                 "next_lesson_date": values["next_lesson_date"],
                 "next_lesson_day": values["next_lesson_day"],
                 "next_lesson_time": values["next_lesson_time"],
+                "send_date": values["send_date"],
+                "send_time": values["send_time"],
+                "telegram_plan_after": plan_after_datetime.isoformat(timespec="minutes"),
+                "creation_delay_minutes": _absent_followup_delay_minutes(settings),
                 "schedule_mode": getattr(settings, "absent_followup_schedule_mode", None) or "after_report",
             },
             ensure_ascii=False,
@@ -1882,7 +1919,11 @@ async def _send_lesson_report(
     elif is_test and not report_text.startswith("ТЕСТ"):
         report_text = f"ТЕСТ\n{report_text}"
 
-    result = await send_pyrogram_message(telegram_group.telegram_id, report_text)
+    result = await send_pyrogram_message(
+        telegram_group.telegram_id,
+        report_text,
+        queue_label=f"\u0417\u0432\u0456\u0442 \u0431\u0430\u0442\u044c\u043a\u0430\u043c: {lesson.group_name}",
+    )
     if not result.get("ok"):
         error = result.get("description") or "Не вдалося відправити звіт"
         _record_report_run(

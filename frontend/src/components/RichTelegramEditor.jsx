@@ -10,10 +10,32 @@ import {
 
 const SUPPORTED_HTML_RE = /<\/?(?:a|b|strong|i|em|u|s|del|strike|code|pre|blockquote|spoiler)\b/i
 const BLOCK_TAGS = new Set(['div', 'p', 'li'])
+const EMPTY_PLACEHOLDER_TOKENS = []
 
 const escapeAttr = (value) => escapeTelegramHtml(value).replace(/"/g, '&quot;')
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-const markdownToEditorHtml = (value, { preserveNewlines = true } = {}) => {
+const buildPlaceholderMap = (tokens = []) => new Map(
+    tokens
+        .filter(item => item?.token && item?.label)
+        .map(item => [String(item.token), String(item.label)])
+)
+
+const placeholderHtml = (token, label) => (
+    `<span class="telegram-placeholder-token" data-template-placeholder="${escapeAttr(token)}" contenteditable="false" title="${escapeAttr(token)}">${escapeTelegramHtml(label)}</span>`
+)
+
+const decoratePlaceholders = (html, placeholderMap) => {
+    if (!placeholderMap?.size) return html
+    const pattern = Array.from(placeholderMap.keys())
+        .sort((a, b) => b.length - a.length)
+        .map(escapeRegExp)
+        .join('|')
+    if (!pattern) return html
+    return html.replace(new RegExp(pattern, 'g'), token => placeholderHtml(token, placeholderMap.get(token)))
+}
+
+const markdownToEditorHtml = (value, { preserveNewlines = true, placeholderMap = null } = {}) => {
     let html = escapeTelegramHtml(value).replace(/\r\n/g, '\n')
 
     html = html.replace(/```(?:[^\n`]*)\n?([\s\S]*?)\n?```/g, (_, code) => (
@@ -29,13 +51,16 @@ const markdownToEditorHtml = (value, { preserveNewlines = true } = {}) => {
     html = html.replace(/~~([\s\S]+?)~~/g, '<s>$1</s>')
     html = html.replace(/\|\|([\s\S]+?)\|\|/g, '<span class="telegram-spoiler" data-telegram-format="spoiler">$1</span>')
 
+    html = decoratePlaceholders(html, placeholderMap)
     return preserveNewlines ? html.replace(/\n/g, '<br>') : html
 }
 
-const sanitizeEditorNode = (node, { inCode = false } = {}) => {
+const sanitizeEditorNode = (node, { inCode = false, placeholderMap = null } = {}) => {
     if (node.nodeType === Node.TEXT_NODE) {
         const text = node.nodeValue || ''
-        return inCode ? escapeTelegramHtml(text).replace(/\r\n/g, '\n').replace(/\n/g, '<br>') : markdownToEditorHtml(text)
+        return inCode
+            ? decoratePlaceholders(escapeTelegramHtml(text).replace(/\r\n/g, '\n').replace(/\n/g, '<br>'), placeholderMap)
+            : markdownToEditorHtml(text, { placeholderMap })
     }
 
     if (node.nodeType !== Node.ELEMENT_NODE) return ''
@@ -44,7 +69,7 @@ const sanitizeEditorNode = (node, { inCode = false } = {}) => {
     if (tag === 'br') return '<br>'
 
     const childHtml = Array.from(node.childNodes)
-        .map(child => sanitizeEditorNode(child, { inCode: inCode || tag === 'code' || tag === 'pre' }))
+        .map(child => sanitizeEditorNode(child, { inCode: inCode || tag === 'code' || tag === 'pre', placeholderMap }))
         .join('')
 
     if (tag === 'b' || tag === 'strong') return `<strong>${childHtml}</strong>`
@@ -64,27 +89,28 @@ const sanitizeEditorNode = (node, { inCode = false } = {}) => {
     return childHtml
 }
 
-const telegramMarkupToEditorHtml = (value) => {
+const telegramMarkupToEditorHtml = (value, placeholderMap = null) => {
     const raw = String(value || '')
     if (!raw) return ''
 
     if (!SUPPORTED_HTML_RE.test(raw)) {
-        return markdownToEditorHtml(raw)
+        return markdownToEditorHtml(raw, { placeholderMap })
     }
 
     const doc = new DOMParser().parseFromString(raw.replace(/\r\n/g, '\n').replace(/\n/g, '<br>'), 'text/html')
-    return Array.from(doc.body.childNodes).map(child => sanitizeEditorNode(child)).join('')
+    return Array.from(doc.body.childNodes).map(child => sanitizeEditorNode(child, { placeholderMap })).join('')
 }
 
 const serializeEditorNode = (node) => {
     if (node.nodeType === Node.TEXT_NODE) {
-        return escapeTelegramHtml((node.nodeValue || '').replace(/\u00a0/g, ' '))
+        return escapeTelegramHtml((node.nodeValue || '').replace(/\u00a0/g, ' ').replace(/\u200b/g, ''))
     }
 
     if (node.nodeType !== Node.ELEMENT_NODE) return ''
 
     const tag = node.tagName.toLowerCase()
     if (tag === 'br') return '\n'
+    if (node.dataset?.templatePlaceholder) return node.dataset.templatePlaceholder
 
     const inner = Array.from(node.childNodes).map(serializeEditorNode).join('')
 
@@ -132,7 +158,112 @@ const placeCaretAfter = (node) => {
     return range
 }
 
-const buildTextFragment = (text) => {
+const appendTextWithPlaceholders = (fragment, text, placeholderMap) => {
+    if (!placeholderMap?.size || !text) {
+        const node = document.createTextNode(text)
+        fragment.appendChild(node)
+        return node
+    }
+
+    const pattern = Array.from(placeholderMap.keys())
+        .sort((a, b) => b.length - a.length)
+        .map(escapeRegExp)
+        .join('|')
+    if (!pattern) {
+        const node = document.createTextNode(text)
+        fragment.appendChild(node)
+        return node
+    }
+
+    const regex = new RegExp(pattern, 'g')
+    let cursor = 0
+    let lastNode = null
+    let match = regex.exec(text)
+
+    while (match) {
+        if (match.index > cursor) {
+            lastNode = document.createTextNode(text.slice(cursor, match.index))
+            fragment.appendChild(lastNode)
+        }
+
+        const token = match[0]
+        const chip = document.createElement('span')
+        chip.className = 'telegram-placeholder-token'
+        chip.dataset.templatePlaceholder = token
+        chip.contentEditable = 'false'
+        chip.title = token
+        chip.textContent = placeholderMap.get(token)
+        fragment.appendChild(chip)
+        lastNode = chip
+        cursor = match.index + token.length
+        match = regex.exec(text)
+    }
+
+    if (cursor < text.length) {
+        lastNode = document.createTextNode(text.slice(cursor))
+        fragment.appendChild(lastNode)
+    }
+
+    return lastNode
+}
+
+const elementMatchesFormat = (element, formatId) => {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) return false
+
+    const tag = element.tagName.toLowerCase()
+    if (formatId === 'bold') return tag === 'b' || tag === 'strong'
+    if (formatId === 'italic') return tag === 'i' || tag === 'em'
+    if (formatId === 'underline') return tag === 'u'
+    if (formatId === 'strike') return tag === 's' || tag === 'del' || tag === 'strike'
+    if (formatId === 'quote') return tag === 'blockquote'
+    if (formatId === 'monospace') return tag === 'code' || tag === 'pre'
+    if (formatId === 'spoiler') return tag === 'spoiler' || element.dataset?.telegramFormat === 'spoiler'
+    if (formatId === 'link') return tag === 'a'
+    return false
+}
+
+const closestFormatAncestor = (root, node, formatId) => {
+    let current = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement
+    while (current && current !== root) {
+        if (elementMatchesFormat(current, formatId)) return current
+        current = current.parentElement
+    }
+    return null
+}
+
+const fragmentHasFormat = (node, formatId) => {
+    if (elementMatchesFormat(node, formatId)) return true
+    return Array.from(node.childNodes || []).some(child => fragmentHasFormat(child, formatId))
+}
+
+const unwrapNode = (node) => {
+    const parent = node.parentNode
+    if (!parent) return
+    while (node.firstChild) {
+        parent.insertBefore(node.firstChild, node)
+    }
+    parent.removeChild(node)
+}
+
+const removeFormatFromFragment = (node, formatId) => {
+    Array.from(node.childNodes || []).forEach(child => removeFormatFromFragment(child, formatId))
+    if (elementMatchesFormat(node, formatId)) {
+        unwrapNode(node)
+    }
+}
+
+const selectInsertedNodes = (firstNode, lastNode) => {
+    if (!firstNode || !lastNode || !firstNode.parentNode || !lastNode.parentNode) return null
+    const nextRange = document.createRange()
+    nextRange.setStartBefore(firstNode)
+    nextRange.setEndAfter(lastNode)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(nextRange)
+    return nextRange
+}
+
+const buildTextFragment = (text, placeholderMap = null) => {
     const fragment = document.createDocumentFragment()
     const parts = String(text || '').replace(/\r\n/g, '\n').split('\n')
     let lastNode = null
@@ -143,8 +274,7 @@ const buildTextFragment = (text) => {
             fragment.appendChild(lastNode)
         }
         if (part) {
-            lastNode = document.createTextNode(part)
-            fragment.appendChild(lastNode)
+            lastNode = appendTextWithPlaceholders(fragment, part, placeholderMap)
         }
     })
 
@@ -161,15 +291,19 @@ function RichTelegramEditor({
     onChange,
     onPaste,
     onMenuPaste,
+    onContextMenu,
     placeholder = '',
     rows = 5,
     className = 'form-textarea',
-    style = {}
+    style = {},
+    placeholderTokens = EMPTY_PLACEHOLDER_TOKENS
 }, ref) {
     const editorRef = useRef(null)
     const savedRangeRef = useRef(null)
     const lastValueRef = useRef(String(value || ''))
-    const initialHtml = useMemo(() => telegramMarkupToEditorHtml(value), [])
+    const historyRef = useRef({ past: [], future: [] })
+    const placeholderMap = useMemo(() => buildPlaceholderMap(placeholderTokens), [placeholderTokens])
+    const initialHtml = useMemo(() => telegramMarkupToEditorHtml(value, placeholderMap), [])
     const [isEmpty, setIsEmpty] = useState(!String(value || '').trim())
     const [isFocused, setIsFocused] = useState(false)
 
@@ -226,9 +360,63 @@ function RichTelegramEditor({
         return range
     }
 
-    const emitChange = () => {
+    const pushHistory = (previousValue) => {
+        const history = historyRef.current
+        if (history.past[history.past.length - 1] !== previousValue) {
+            history.past.push(previousValue)
+            if (history.past.length > 100) history.past.shift()
+        }
+        history.future = []
+    }
+
+    const moveCaretToEnd = () => {
+        const editor = editorRef.current
+        if (!editor) return
+        const range = document.createRange()
+        range.selectNodeContents(editor)
+        range.collapse(false)
+        const selection = window.getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+        savedRangeRef.current = range.cloneRange()
+    }
+
+    const restoreValue = (nextValue) => {
+        const editor = editorRef.current
+        if (!editor) return false
+        editor.innerHTML = telegramMarkupToEditorHtml(nextValue, placeholderMap)
+        lastValueRef.current = String(nextValue || '')
+        updateEmptyState()
+        moveCaretToEnd()
+        onChange?.({ target: { value: lastValueRef.current } })
+        return true
+    }
+
+    const undoChange = () => {
+        const history = historyRef.current
+        if (!history.past.length) return false
+        const currentValue = lastValueRef.current
+        const previousValue = history.past.pop()
+        history.future.push(currentValue)
+        return restoreValue(previousValue)
+    }
+
+    const redoChange = () => {
+        const history = historyRef.current
+        if (!history.future.length) return false
+        const currentValue = lastValueRef.current
+        const nextValue = history.future.pop()
+        history.past.push(currentValue)
+        return restoreValue(nextValue)
+    }
+
+    const emitChange = ({ recordHistory = true } = {}) => {
         const editor = editorRef.current
         const nextValue = editorHtmlToTelegramMarkup(editor)
+        const previousValue = lastValueRef.current
+        if (recordHistory && nextValue !== previousValue) {
+            pushHistory(previousValue)
+        }
         lastValueRef.current = nextValue
         updateEmptyState()
         onChange?.({ target: { value: nextValue } })
@@ -248,7 +436,7 @@ function RichTelegramEditor({
         if (!range) return false
 
         range.deleteContents()
-        const { fragment, lastNode } = buildTextFragment(text)
+        const { fragment, lastNode } = buildTextFragment(text, placeholderMap)
         range.insertNode(fragment)
         placeCaretAfter(lastNode)
         saveSelection()
@@ -292,6 +480,36 @@ function RichTelegramEditor({
         const selectedText = range.toString()
         if (range.collapsed || !selectedText) {
             return false
+        }
+
+        const canToggleFormat = !['clear', 'date'].includes(formatId)
+        const startAncestor = closestFormatAncestor(editor, range.startContainer, formatId)
+        const endAncestor = closestFormatAncestor(editor, range.endContainer, formatId)
+        const clone = range.cloneContents()
+        const hasMatchingAncestor = !!(
+            startAncestor
+            && endAncestor
+            && (
+                startAncestor === endAncestor
+                || startAncestor.contains(endAncestor)
+                || endAncestor.contains(startAncestor)
+            )
+        )
+        const shouldRemoveFormat = canToggleFormat && (hasMatchingAncestor || fragmentHasFormat(clone, formatId))
+
+        if (shouldRemoveFormat) {
+            const content = range.extractContents()
+            removeFormatFromFragment(content, formatId)
+            const insertedNodes = Array.from(content.childNodes)
+            range.insertNode(content)
+            const nextRange = selectInsertedNodes(insertedNodes[0], insertedNodes[insertedNodes.length - 1])
+            if (nextRange) {
+                savedRangeRef.current = nextRange.cloneRange()
+            } else {
+                saveSelection()
+            }
+            emitChange()
+            return true
         }
 
         let wrapper = null
@@ -366,7 +584,21 @@ function RichTelegramEditor({
         const shift = event.shiftKey
         let formatId = ''
 
-        if (!shift && key === 'a') {
+        if (!shift && (key === 'z' || code === 'KeyZ')) {
+            if (undoChange()) {
+                event.preventDefault()
+            }
+            return
+        }
+
+        if ((!shift && (key === 'y' || code === 'KeyY')) || (shift && (key === 'z' || code === 'KeyZ'))) {
+            if (redoChange()) {
+                event.preventDefault()
+            }
+            return
+        }
+
+        if (!shift && (key === 'a' || code === 'KeyA')) {
             const editor = editorRef.current
             if (!editor) return
             event.preventDefault()
@@ -379,15 +611,15 @@ function RichTelegramEditor({
             return
         }
 
-        if (!shift && key === 'b') formatId = 'bold'
-        else if (!shift && key === 'i') formatId = 'italic'
-        else if (!shift && key === 'u') formatId = 'underline'
-        else if (!shift && key === 'k') formatId = 'link'
-        else if (shift && key === 'x') formatId = 'strike'
-        else if (shift && key === 'm') formatId = 'monospace'
-        else if (shift && key === 'p') formatId = 'spoiler'
-        else if (shift && key === 'd') formatId = 'date'
-        else if (shift && key === 'n') formatId = 'clear'
+        if (!shift && (key === 'b' || code === 'KeyB')) formatId = 'bold'
+        else if (!shift && (key === 'i' || code === 'KeyI')) formatId = 'italic'
+        else if (!shift && (key === 'u' || code === 'KeyU')) formatId = 'underline'
+        else if (!shift && (key === 'k' || code === 'KeyK')) formatId = 'link'
+        else if (shift && (key === 'x' || code === 'KeyX')) formatId = 'strike'
+        else if (shift && (key === 'm' || code === 'KeyM')) formatId = 'monospace'
+        else if (shift && (key === 'p' || code === 'KeyP')) formatId = 'spoiler'
+        else if (shift && (key === 'd' || code === 'KeyD')) formatId = 'date'
+        else if (shift && (key === 'n' || code === 'KeyN')) formatId = 'clear'
         else if (shift && (key === '.' || code === 'Period')) formatId = 'quote'
 
         if (!formatId) return
@@ -432,10 +664,10 @@ function RichTelegramEditor({
         const nextValue = String(value || '')
         if (!editor || nextValue === lastValueRef.current) return
 
-        editor.innerHTML = telegramMarkupToEditorHtml(nextValue)
+        editor.innerHTML = telegramMarkupToEditorHtml(nextValue, placeholderMap)
         lastValueRef.current = nextValue
         updateEmptyState()
-    }, [value])
+    }, [value, placeholderMap])
 
     return (
         <div
@@ -453,6 +685,7 @@ function RichTelegramEditor({
             style={{ ...style, '--telegram-editor-rows': rows }}
             onInput={handleInput}
             onPaste={handlePaste}
+            onContextMenu={onContextMenu}
             onKeyDown={handleKeyDown}
             onKeyUp={saveSelection}
             onMouseUp={saveSelection}

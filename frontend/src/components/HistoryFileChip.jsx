@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getFilesFromDB } from '../utils/db'
+import { API_URL } from '../api/client'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 const MAX_VIDEO_THUMBNAIL_BYTES = 80 * 1024 * 1024
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'])

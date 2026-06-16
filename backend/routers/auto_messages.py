@@ -7,6 +7,7 @@ from pyrogram.errors import FloodWait, RPCError, PeerIdInvalid
 from pyrogram import raw
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from datetime import datetime, timedelta
 import asyncio
 import hashlib
@@ -33,6 +34,8 @@ router = APIRouter(prefix="/auto-messages", tags=["Автоповідомлен�
 scheduler = AsyncIOScheduler()
 CREATE_DUPLICATE_TTL_SECONDS = 15
 MAX_STICKERS_PER_AUTO_MESSAGE = 12
+LOCAL_SEND_JOB_PREFIX = "auto_msg_"
+TELEGRAM_PLAN_JOB_PREFIX = "auto_msg_plan_"
 _recent_create_fingerprints: dict[str, float] = {}
 
 
@@ -202,6 +205,71 @@ def _auto_message_query(db: Session):
     return db.query(AutoMessage).options(selectinload(AutoMessage.files))
 
 
+def _metadata_from_auto_message(auto_msg: AutoMessage) -> dict:
+    if not getattr(auto_msg, "metadata_json", None):
+        return {}
+    try:
+        metadata = json.loads(auto_msg.metadata_json)
+        return metadata if isinstance(metadata, dict) else {}
+    except Exception:
+        return {}
+
+
+def _parse_iso_datetime(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+
+
+def _now_for(dt: datetime):
+    return datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+
+
+def _telegram_plan_after(auto_msg: AutoMessage):
+    metadata = _metadata_from_auto_message(auto_msg)
+    return _parse_iso_datetime(metadata.get("telegram_plan_after"))
+
+
+def _telegram_plan_ready(auto_msg: AutoMessage) -> bool:
+    plan_after = _telegram_plan_after(auto_msg)
+    if not plan_after:
+        return True
+    return plan_after <= _now_for(plan_after)
+
+
+def _telegram_plan_job_id(auto_message_id: int) -> str:
+    return f"{TELEGRAM_PLAN_JOB_PREFIX}{auto_message_id}"
+
+
+def _local_send_job_id(auto_message_id: int) -> str:
+    return f"{LOCAL_SEND_JOB_PREFIX}{auto_message_id}"
+
+
+def _clear_telegram_plan_job(auto_message_id: int):
+    job_id = _telegram_plan_job_id(auto_message_id)
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+
+
+def _schedule_telegram_plan_job(auto_msg: AutoMessage) -> bool:
+    plan_after = _telegram_plan_after(auto_msg)
+    if not plan_after or plan_after <= _now_for(plan_after):
+        _clear_telegram_plan_job(auto_msg.id)
+        return False
+
+    scheduler.add_job(
+        schedule_created_auto_message_in_telegram,
+        DateTrigger(run_date=plan_after),
+        args=[auto_msg.id],
+        id=_telegram_plan_job_id(auto_msg.id),
+        replace_existing=True,
+    )
+    return True
+
+
 def _sanitize_sticker_items(items) -> list[dict]:
     if not isinstance(items, list):
         raise HTTPException(status_code=400, detail="stickers має бути списком")
@@ -264,14 +332,7 @@ def _stickers_from_auto_message(auto_msg: AutoMessage) -> list[dict]:
 
 def _serialize_auto_message(auto_msg: AutoMessage):
     auto_msg = _mark_file_exists(auto_msg)
-    metadata = {}
-    if getattr(auto_msg, "metadata_json", None):
-        try:
-            metadata = json.loads(auto_msg.metadata_json)
-            if not isinstance(metadata, dict):
-                metadata = {}
-        except Exception:
-            metadata = {}
+    metadata = _metadata_from_auto_message(auto_msg)
     return {
         "id": auto_msg.id,
         "group_id": auto_msg.group_id,
@@ -523,6 +584,10 @@ async def _edit_scheduled_telegram_message(auto_msg: AutoMessage, group: Group, 
 
 
 async def _schedule_in_telegram(auto_msg: AutoMessage, group: Group, target_datetime: datetime, scheduled_cache=None):
+    if not _telegram_plan_ready(auto_msg):
+        _schedule_telegram_plan_job(auto_msg)
+        return "deferred"
+
     client = pyrogram_manager.client
     chat_id = _chat_lookup_value(group.telegram_id)
     message_key = (auto_msg.message or "").strip()
@@ -557,6 +622,7 @@ async def _schedule_in_telegram(auto_msg: AutoMessage, group: Group, target_date
         prefer_cached=False,
         schedule_date=target_datetime,
         sticker_file_ids=sticker_items,
+        queue_label=f"\u0410\u0432\u0442\u043e\u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f: {group.name}",
     )
     if not result["ok"] and _is_peer_id_error(result.get("description", "")):
         await pyrogram_manager.warm_dialogs_now(limit=1000, min_interval=10)
@@ -567,6 +633,7 @@ async def _schedule_in_telegram(auto_msg: AutoMessage, group: Group, target_date
             prefer_cached=False,
             schedule_date=target_datetime,
             sticker_file_ids=sticker_items,
+            queue_label=f"\u0410\u0432\u0442\u043e\u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f: {group.name}",
         )
     if not result["ok"]:
         if _is_peer_id_error(result.get("description", "")):
@@ -605,9 +672,10 @@ async def send_auto_message_pyrogram(auto_message_id: int):
 
         if auto_msg.repeat_count > 0 and auto_msg.sent_count >= auto_msg.repeat_count:
             auto_msg.is_active = 0
-            job_id = f"auto_msg_{auto_message_id}"
+            job_id = _local_send_job_id(auto_message_id)
             if scheduler.get_job(job_id):
                 scheduler.remove_job(job_id)
+            _clear_telegram_plan_job(auto_message_id)
             log_event("INFO", "AutoMsg", f"Ліміт досягнуто ({auto_msg.repeat_count}), деактивовано msg_id={auto_message_id}")
         else:
             try:
@@ -657,6 +725,7 @@ async def schedule_telegram_messages():
 
         scheduled_count = 0
         skipped_count = 0
+        deferred_count = 0
         error_count = 0
         scheduled_cache = {}
 
@@ -677,6 +746,8 @@ async def schedule_telegram_messages():
                     log_event("INFO", "AutoMsg", f"Заплановано: '{group.name}' на {target_datetime.strftime('%d.%m %H:%M')}")
                 elif status == "skipped":
                     skipped_count += 1
+                elif status == "deferred":
+                    deferred_count += 1
 
                 await asyncio.sleep(0.3)
             except ChatPeerUnavailable:
@@ -704,6 +775,8 @@ async def schedule_telegram_messages():
             log_event("INFO", "AutoMsg", f"Заплановано {scheduled_count} відкладених повідомлень через Telegram")
         if skipped_count > 0:
             log_event("INFO", "AutoMsg", f"Пропущено {skipped_count} (вже заплановані в Telegram)")
+        if deferred_count > 0:
+            log_event("INFO", "AutoMsg", f"Відкладено Telegram-планування: {deferred_count}")
         if scheduled_count > 0 or skipped_count > 0:
             show_system_notification(
                 "Автоповідомлення заплановано",
@@ -712,6 +785,7 @@ async def schedule_telegram_messages():
         return {
             "scheduled_count": scheduled_count,
             "skipped_count": skipped_count,
+            "deferred_count": deferred_count,
             "error_count": error_count,
         }
     finally:
@@ -764,6 +838,10 @@ async def schedule_created_auto_message_in_telegram(auto_message_id: int):
             )
         elif status == "skipped":
             log_event("INFO", "AutoMsg", f"Фонове Telegram-планування пропущено для '{group.name}': вже заплановано ({elapsed:.2f} с)")
+        elif status == "deferred":
+            plan_after = _telegram_plan_after(auto_msg)
+            plan_text = plan_after.strftime("%d.%m %H:%M") if plan_after else "пізніше"
+            log_event("INFO", "AutoMsg", f"Telegram-планування для '{group.name}' відкладено до {plan_text} ({elapsed:.2f} с)")
         else:
             log_event("INFO", "AutoMsg", f"Фонове Telegram-планування пропущено для '{group.name}': немає вмісту ({elapsed:.2f} с)")
     except ChatPeerUnavailable:
@@ -781,7 +859,7 @@ async def schedule_created_auto_message_in_telegram(auto_message_id: int):
 
 
 def schedule_auto_message(auto_message: AutoMessage):
-    job_id = f"auto_msg_{auto_message.id}"
+    job_id = _local_send_job_id(auto_message.id)
 
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
@@ -803,6 +881,7 @@ def schedule_auto_message(auto_message: AutoMessage):
         args=[auto_message.id],
         id=job_id
     )
+    _schedule_telegram_plan_job(auto_message)
 
 
 @router.get("/", response_model=List[AutoMessageResponse])
@@ -898,9 +977,10 @@ async def delete_auto_message(auto_message_id: int, db: Session = Depends(get_db
     if not db_auto_msg:
         raise HTTPException(status_code=404, detail="Автоповідомлення не знайдено")
 
-    job_id = f"auto_msg_{auto_message_id}"
+    job_id = _local_send_job_id(auto_message_id)
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
+    _clear_telegram_plan_job(auto_message_id)
 
     group = db.query(Group).filter(Group.id == db_auto_msg.group_id).first()
     if group:
@@ -997,9 +1077,10 @@ async def toggle_auto_message(auto_message_id: int, db: Session = Depends(get_db
                 await _delete_scheduled_telegram_message(db_auto_msg, group)
             except Exception as error:
                 log_event("WARNING", "AutoMsg", f"Не вдалося прибрати відкладене повідомлення #{auto_message_id} у Telegram: {error}")
-        job_id = f"auto_msg_{auto_message_id}"
+        job_id = _local_send_job_id(auto_message_id)
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
+        _clear_telegram_plan_job(auto_message_id)
     else:
         db_auto_msg.last_scheduled_for = None
         db_auto_msg.scheduled_message_id = None

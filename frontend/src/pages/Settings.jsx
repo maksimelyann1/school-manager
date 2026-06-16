@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { AppSelect, TimePicker } from '../components/FormControls'
 import TelegramAuthPanel from '../components/TelegramAuthPanel'
+import { useToast } from '../components/ToastProvider'
 import { getSearchVariations } from '../utils/search'
+import { API_URL } from '../api/client'
 
 // URL бекенду
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 
 // Дні тижня
 const DAYS = ['понеділок', 'вівторок', 'середа', 'четвер', "п'ятниця", 'субота', 'неділя']
@@ -62,7 +63,8 @@ function Settings() {
         supported: true,
         enabled: true
     })
-    const [alert, setAlert] = useState(null)
+    const { showToast } = useToast()
+    const setAlert = showToast
     const [showGroupForm, setShowGroupForm] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [isGroupsExpanded, setIsGroupsExpanded] = useState(false)
@@ -927,13 +929,6 @@ function Settings() {
     }
 
     useEffect(() => {
-        if (alert) {
-            const timer = setTimeout(() => setAlert(null), 5000)
-            return () => clearTimeout(timer)
-        }
-    }, [alert])
-
-    useEffect(() => {
         const closeCategoryMenu = () => setCategoryContextMenu(null)
         window.addEventListener('click', closeCategoryMenu)
         window.addEventListener('scroll', closeCategoryMenu, true)
@@ -981,12 +976,6 @@ function Settings() {
                 <h2>⚙️ Налаштування</h2>
                 <p>Підключіть Telegram акаунт, групи та категорії</p>
             </div>
-
-            {alert && (
-                <div className={`alert alert-${alert.type}`}>
-                    {alert.text}
-                </div>
-            )}
 
             {categoryContextMenu && (
                 <div

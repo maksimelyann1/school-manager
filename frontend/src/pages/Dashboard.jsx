@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { API_URL } from '../api/client'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api';
 
 export default function Dashboard() {
     const [stats, setStats] = useState(null);

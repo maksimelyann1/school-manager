@@ -1,19 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import EmojiPicker from '../components/EmojiPicker'
 import FilePreviewChip from '../components/FilePreviewChip'
-import StickerIcon from '../components/StickerIcon'
-import StickerPicker from '../components/StickerPicker'
+import MessageComposer from '../components/MessageComposer'
 import StickerPreview from '../components/StickerPreview'
-import TelegramTextToolbar from '../components/TelegramTextToolbar'
-import RichTelegramEditor from '../components/RichTelegramEditor'
-import MagicTextButton from '../components/MagicTextButton'
+import { useToast } from '../components/ToastProvider'
+import { useApi } from '../hooks/useApi'
+import { useClipboardFiles } from '../hooks/useClipboardFiles'
+import { useDragDropFiles } from '../hooks/useDragDropFiles'
+import { getFileName, getFileType, isServerFile, stickerKey, toServerFile } from '../utils/fileInputs'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 
 function Templates() {
     const [templates, setTemplates] = useState([])
     const [loading, setLoading] = useState(true)
-    const [alert, setAlert] = useState(null)
+    const { showToast } = useToast()
+    const setAlert = showToast
+    const apiClient = useApi()
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [editingTemplate, setEditingTemplate] = useState(null)
     const [formName, setFormName] = useState('')
@@ -21,21 +22,10 @@ function Templates() {
     const [existingFiles, setExistingFiles] = useState([])
     const [formFiles, setFormFiles] = useState([])
     const [saving, setSaving] = useState(false)
-    const [showEmoji, setShowEmoji] = useState(false)
-    const [showStickers, setShowStickers] = useState(false)
     const [selectedStickers, setSelectedStickers] = useState([])
-    const [isDragging, setIsDragging] = useState(false)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
     const dropZoneRef = useRef(null)
-    const emojiButtonRef = useRef(null)
-    const stickerButtonRef = useRef(null)
-
-    useEffect(() => {
-        if (!alert) return
-        const timer = setTimeout(() => setAlert(null), 4000)
-        return () => clearTimeout(timer)
-    }, [alert])
 
     useEffect(() => {
         fetchTemplates()
@@ -44,8 +34,7 @@ function Templates() {
     const fetchTemplates = async () => {
         setLoading(true)
         try {
-            const response = await fetch(`${API_URL}/templates/`)
-            const data = await response.json()
+            const data = await apiClient.get('/templates/', { toast: false })
             setTemplates(data)
         } catch (error) {
             setAlert({ type: 'error', text: 'Помилка завантаження шаблонів' })
@@ -59,8 +48,6 @@ function Templates() {
         setFormText('')
         setExistingFiles([])
         setFormFiles([])
-        setShowEmoji(false)
-        setShowStickers(false)
         setSelectedStickers([])
         setIsDragging(false)
         if (fileInputRef.current) {
@@ -79,8 +66,6 @@ function Templates() {
         setFormText(template.text || '')
         setExistingFiles(template.files || [])
         setFormFiles([])
-        setShowEmoji(false)
-        setShowStickers(false)
         setSelectedStickers(template.stickers || [])
         setIsDragging(false)
         setIsModalOpen(true)
@@ -91,30 +76,12 @@ function Templates() {
         resetModalState()
     }
 
-    const isServerFile = (file) => file && file.source === 'server'
-
-    const getFileName = (file) => file?.name || file?.filename || file?.original_filename || 'file'
-
-    const getFileType = (file) => file?.type || file?.content_type || 'application/octet-stream'
-
-    const toServerFile = (file, storage = 'import') => ({
-        source: 'server',
-        storage: file.storage || storage,
-        stored_filename: file.stored_filename,
-        name: file.filename || file.original_filename || file.name || 'file',
-        filename: file.filename || file.original_filename || file.name || 'file',
-        type: file.type || file.content_type || 'application/octet-stream',
-        size: file.size || 0
-    })
-
     const appendFormFiles = (filesToAdd) => {
         const usableFiles = Array.from(filesToAdd || []).filter(Boolean)
         if (usableFiles.length > 0) {
             setFormFiles(prev => [...prev, ...usableFiles])
         }
     }
-
-    const stickerKey = (sticker) => sticker?.file_id || `${sticker?.pack_short_name || ''}:${sticker?.document_id || sticker?.id || ''}`
 
     const addSticker = (sticker) => {
         const key = stickerKey(sticker)
@@ -135,135 +102,27 @@ function Templates() {
         setSelectedStickers(prev => prev.filter(item => stickerKey(item) !== key))
     }
 
-    const extractUrlFromHtml = (html) => {
-        if (!html) return ''
-        const doc = new DOMParser().parseFromString(html, 'text/html')
-        return doc.querySelector('img, video, source, a')?.getAttribute('src')
-            || doc.querySelector('a')?.getAttribute('href')
-            || ''
-    }
-
-    const extractUrlFromText = (text) => {
-        const match = (text || '').match(/https?:\/\/[^\s"'<>]+/i)
-        return match ? match[0] : ''
-    }
-
     const importRemoteFile = async (url, filename = '') => {
-        const response = await fetch(`${API_URL}/messages/import-url`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, filename })
-        })
-        const data = await response.json()
-        if (!response.ok) {
-            throw new Error(data.detail || 'Не вдалося імпортувати файл')
-        }
+        const data = await apiClient.post('/messages/import-url', { url, filename }, { toast: false })
         appendFormFiles([toServerFile(data, 'import')])
-        setAlert({ type: 'success', text: `Файл додано: ${data.filename}` })
+        setAlert({ type: 'success', text: `\u0424\u0430\u0439\u043b \u0434\u043e\u0434\u0430\u043d\u043e: ${data.filename}` })
     }
 
-    const addFilesFromClipboardData = async (clipboardData, preventDefault = false) => {
-        const files = []
-        for (const item of Array.from(clipboardData?.items || [])) {
-            if (item.kind === 'file') {
-                const file = item.getAsFile()
-                if (file) files.push(file)
-            }
-        }
+    const { addFilesFromClipboardData, pasteFromClipboard } = useClipboardFiles({
+        appendFiles: appendFormFiles,
+        importRemoteFile,
+        showToast: setAlert,
+        hintText: '\u041d\u0430\u0442\u0438\u0441\u043d\u0456\u0442\u044c Ctrl+V \u0443 \u043f\u043e\u043b\u0456 \u0442\u0435\u043a\u0441\u0442\u0443 \u0448\u0430\u0431\u043b\u043e\u043d\u0430, \u0449\u043e\u0431 \u0432\u0441\u0442\u0430\u0432\u0438\u0442\u0438 \u0444\u0430\u0439\u043b \u0437 \u0431\u0443\u0444\u0435\u0440\u0430.',
+        blockedText: '\u0414\u043e\u0441\u0442\u0443\u043f \u0434\u043e \u0431\u0443\u0444\u0435\u0440\u0430 \u0437\u0430\u0431\u043b\u043e\u043a\u043e\u0432\u0430\u043d\u043e. \u0421\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 Ctrl+V \u0443 \u043f\u043e\u043b\u0456 \u0442\u0435\u043a\u0441\u0442\u0443 \u0448\u0430\u0431\u043b\u043e\u043d\u0430.'
+    })
 
-        if (files.length > 0) {
-            if (preventDefault) preventDefault()
-            appendFormFiles(files)
-            return true
-        }
-
-        const htmlUrl = extractUrlFromHtml(clipboardData?.getData('text/html'))
-        const textUrl = extractUrlFromText(
-            clipboardData?.getData('text/uri-list') || clipboardData?.getData('text/plain')
-        )
-        const url = htmlUrl || textUrl
-        if (url) {
-            if (preventDefault) preventDefault()
-            await importRemoteFile(url)
-            return true
-        }
-
-        return false
-    }
-
-    const pasteFromClipboard = async () => {
-        try {
-            if (navigator.clipboard?.read) {
-                const items = await navigator.clipboard.read()
-                const files = []
-                for (const item of items) {
-                    for (const type of item.types) {
-                        if (type.startsWith('image/') || type.startsWith('video/') || type === 'application/pdf') {
-                            const blob = await item.getType(type)
-                            const extension = type.split('/')[1]?.replace('jpeg', 'jpg') || 'bin'
-                            files.push(new File([blob], `clipboard_${Date.now()}.${extension}`, { type }))
-                            break
-                        }
-                    }
-                }
-                if (files.length > 0) {
-                    appendFormFiles(files)
-                    return
-                }
-            }
-            setAlert({ type: 'info', text: 'Натисніть Ctrl+V у полі тексту шаблона, щоб вставити файл з буфера.' })
-        } catch (error) {
-            setAlert({ type: 'warning', text: 'Доступ до буфера заблоковано. Спробуйте Ctrl+V у полі тексту шаблона.' })
-        }
-    }
-
-    const handleFileSelect = (e) => {
-        appendFormFiles(e.target.files)
-        e.target.value = ''
-    }
-
-    const handleDragEnter = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(true)
-    }
-
-    const handleDragOver = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-    }
-
-    const handleDragLeave = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (dropZoneRef.current && dropZoneRef.current.contains(e.relatedTarget)) {
-            return
-        }
-        setIsDragging(false)
-    }
-
-    const handleDrop = async (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(false)
-
-        const droppedFiles = Array.from(e.dataTransfer.files || []).filter(file => file.size > 0)
-        if (droppedFiles.length > 0) {
-            appendFormFiles(droppedFiles)
-            return
-        }
-
-        const htmlUrl = extractUrlFromHtml(e.dataTransfer.getData('text/html'))
-        const textUrl = extractUrlFromText(e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'))
-        const url = htmlUrl || textUrl
-        if (!url) return
-
-        try {
-            await importRemoteFile(url)
-        } catch (error) {
-            setAlert({ type: 'error', text: error.message || 'Не вдалося додати файл з браузера' })
-        }
-    }
+    const { isDragging, setIsDragging, dragHandlers } = useDragDropFiles({
+        dropZoneRef,
+        appendFiles: appendFormFiles,
+        importRemoteFile,
+        showToast: setAlert,
+        errorText: '\u041d\u0435 \u0432\u0434\u0430\u043b\u043e\u0441\u044f \u0434\u043e\u0434\u0430\u0442\u0438 \u0444\u0430\u0439\u043b \u0437 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430'
+    })
 
     const handlePaste = async (e) => {
         try {
@@ -271,9 +130,10 @@ function Templates() {
             if (handled) return
         } catch (error) {
             e.preventDefault()
-            setAlert({ type: 'error', text: error.message || 'Не вдалося вставити файл з буфера' })
+            setAlert({ type: 'error', text: error.message || '\u041d\u0435 \u0432\u0434\u0430\u043b\u043e\u0441\u044f \u0432\u0441\u0442\u0430\u0432\u0438\u0442\u0438 \u0444\u0430\u0439\u043b \u0437 \u0431\u0443\u0444\u0435\u0440\u0430' })
         }
     }
+
 
     const removeExistingFile = (id) => {
         setExistingFiles(prev => prev.filter(file => file.id !== id))
@@ -281,26 +141,6 @@ function Templates() {
 
     const removeNewFile = (index) => {
         setFormFiles(prev => prev.filter((_, i) => i !== index))
-    }
-
-    const insertEmoji = (emoji) => {
-        const el = textareaRef.current
-        if (el?.insertText) {
-            el.insertText(emoji)
-            return
-        }
-        if (!el) {
-            setFormText(prev => prev + emoji)
-            return
-        }
-        const start = el.selectionStart
-        const end = el.selectionEnd
-        const newVal = formText.slice(0, start) + emoji + formText.slice(end)
-        setFormText(newVal)
-        setTimeout(() => {
-            el.focus()
-            el.setSelectionRange(start + emoji.length, start + emoji.length)
-        }, 0)
     }
 
     const saveTemplate = async () => {
@@ -348,20 +188,14 @@ function Templates() {
             localFiles.forEach(file => payload.append('files', file))
 
             const url = editingTemplate
-                ? `${API_URL}/templates/${editingTemplate.id}`
-                : `${API_URL}/templates/`
+                ? `/templates/${editingTemplate.id}`
+                : '/templates/'
             const method = editingTemplate ? 'PUT' : 'POST'
 
-            const response = await fetch(url, { method, body: payload })
-            const data = await response.json().catch(() => ({}))
-
-            if (response.ok) {
-                setAlert({ type: 'success', text: editingTemplate ? 'Шаблон оновлено!' : 'Шаблон створено!' })
-                closeModal()
-                fetchTemplates()
-            } else {
-                setAlert({ type: 'error', text: data.detail || 'Помилка збереження шаблону' })
-            }
+            await apiClient.form(url, payload, method, { toast: false })
+            setAlert({ type: 'success', text: editingTemplate ? '\u0428\u0430\u0431\u043b\u043e\u043d \u043e\u043d\u043e\u0432\u043b\u0435\u043d\u043e!' : '\u0428\u0430\u0431\u043b\u043e\u043d \u0441\u0442\u0432\u043e\u0440\u0435\u043d\u043e!' })
+            closeModal()
+            fetchTemplates()
         } catch (error) {
             setAlert({ type: 'error', text: 'Помилка підключення до сервера' })
         }
@@ -372,13 +206,9 @@ function Templates() {
         if (!window.confirm(`Видалити шаблон "${template.name}"?`)) return
 
         try {
-            const response = await fetch(`${API_URL}/templates/${template.id}`, { method: 'DELETE' })
-            if (response.ok) {
-                setAlert({ type: 'success', text: 'Шаблон видалено' })
-                fetchTemplates()
-            } else {
-                setAlert({ type: 'error', text: 'Помилка видалення' })
-            }
+            await apiClient.delete(`/templates/${template.id}`, { toast: false })
+            setAlert({ type: 'success', text: '\u0428\u0430\u0431\u043b\u043e\u043d \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043e' })
+            fetchTemplates()
         } catch (error) {
             setAlert({ type: 'error', text: 'Помилка підключення до сервера' })
         }
@@ -390,12 +220,6 @@ function Templates() {
                 <h2>Шаблони повідомлень</h2>
                 <p>Збережіть готові тексти та файли для швидкого використання</p>
             </div>
-
-            {alert && (
-                <div className={`alert alert-${alert.type}`}>
-                    {alert.text}
-                </div>
-            )}
 
             <div className="card">
                 <div className="card-header">
@@ -493,187 +317,35 @@ function Templates() {
                             />
                         </div>
 
-                        <div
-                            ref={dropZoneRef}
-                            onDragEnter={handleDragEnter}
-                            onDragOver={handleDragOver}
-                            onDragLeave={handleDragLeave}
-                            onDrop={handleDrop}
-                            style={{
-                                position: 'relative',
-                                borderRadius: 'var(--radius-sm)',
-                                border: isDragging ? '2px dashed var(--primary)' : '1px solid transparent',
-                                background: isDragging ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
-                                transition: 'border 0.15s ease, background 0.15s ease',
-                                padding: isDragging ? '10px' : '0'
-                            }}
-                        >
-                            <div
-                                style={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    background: 'rgba(30, 41, 59, 0.88)',
-                                    borderRadius: 'var(--radius-sm)',
-                                    color: 'var(--primary)',
-                                    fontWeight: 'bold',
-                                    fontSize: '1.05rem',
-                                    pointerEvents: 'none',
-                                    zIndex: 10,
-                                    opacity: isDragging ? 1 : 0,
-                                    visibility: isDragging ? 'visible' : 'hidden',
-                                    transition: 'opacity 0.1s ease'
-                                }}
-                            >
-                                Відпустіть файли тут
-                            </div>
-
-                            <div className="form-group">
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px', flexWrap: 'wrap' }}>
-                                    <label className="form-label" style={{ margin: 0 }}>Текст шаблону</label>
-                                    <div className="message-tools-row">
-                                        <MagicTextButton
-                                            value={formText}
-                                            setValue={setFormText}
-                                            context="template"
-                                            onAlert={setAlert}
-                                            disabled={saving}
-                                        />
-                                        <div className="emoji-picker-wrap">
-                                            <button
-                                                ref={emojiButtonRef}
-                                                className="emoji-trigger-btn"
-                                                onClick={() => {
-                                                    setShowEmoji(v => !v)
-                                                    setShowStickers(false)
-                                                }}
-                                                title="Додати смайлик"
-                                                type="button"
-                                                style={{ fontSize: '1.3rem', opacity: 1 }}
-                                            >
-                                                😊
-                                            </button>
-                                            {showEmoji && (
-                                                <EmojiPicker
-                                                    anchorRef={emojiButtonRef}
-                                                    onSelect={(emoji) => insertEmoji(emoji)}
-                                                    onClose={() => setShowEmoji(false)}
-                                                />
-                                            )}
-                                        </div>
-                                        <div className="sticker-picker-wrap">
-                                            <button
-                                                ref={stickerButtonRef}
-                                                className="emoji-trigger-btn"
-                                                onClick={() => {
-                                                    setShowStickers(v => !v)
-                                                    setShowEmoji(false)
-                                                }}
-                                                title="Додати наліпку"
-                                                type="button"
-                                                style={{ opacity: 1 }}
-                                            >
-                                                <StickerIcon />
-                                            </button>
-                                            {showStickers && (
-                                                <StickerPicker
-                                                    anchorRef={stickerButtonRef}
-                                                    onSelect={addSticker}
-                                                    onClose={() => setShowStickers(false)}
-                                                />
-                                            )}
-                                        </div>
-                                        <TelegramTextToolbar
-                                            textareaRef={textareaRef}
-                                            value={formText}
-                                            setValue={setFormText}
-                                        />
-                                    </div>
-                                </div>
-                                <RichTelegramEditor
-                                    ref={textareaRef}
-                                    className="form-textarea"
-                                    placeholder="Введіть текст шаблону або перетягніть файли сюди..."
-                                    value={formText}
-                                    onChange={e => setFormText(e.target.value)}
-                                    onPaste={handlePaste}
-                                    rows={6}
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label className="form-label">Файли шаблону</label>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary btn-sm"
-                                        onClick={() => fileInputRef.current?.click()}
-                                    >
-                                        + Додати файли
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary btn-sm"
-                                        onClick={pasteFromClipboard}
-                                    >
-                                        Вставити з буфера
-                                    </button>
-                                    <input
-                                        ref={fileInputRef}
-                                        type="file"
-                                        multiple
-                                        style={{ display: 'none' }}
-                                        onChange={handleFileSelect}
-                                    />
-                                </div>
-
-                                {(existingFiles.length > 0 || formFiles.length > 0) && (
-                                    <div className="template-files" style={{ marginTop: '10px' }}>
-                                        {existingFiles.map(file => (
-                                            <FilePreviewChip
-                                                key={`existing-${file.id}`}
-                                                file={file}
-                                                defaultStorage="template"
-                                                onRemove={() => removeExistingFile(file.id)}
-                                                onOpenError={(text) => setAlert({ type: 'warning', text })}
-                                            />
-                                        ))}
-                                        {formFiles.map((file, index) => (
-                                            <FilePreviewChip
-                                                key={`new-${getFileName(file)}-${index}`}
-                                                file={file}
-                                                defaultStorage="import"
-                                                onRemove={() => removeNewFile(index)}
-                                                onOpenError={(text) => setAlert({ type: 'warning', text })}
-                                            />
-                                        ))}
-                                    </div>
-                                )}
-                                {selectedStickers.length > 0 && (
-                                    <div className="selected-sticker-list">
-                                        {selectedStickers.map((sticker, index) => (
-                                            <div
-                                                key={stickerKey(sticker) || `selected-sticker-${index}`}
-                                                className="selected-sticker-chip"
-                                            >
-                                                <StickerPreview sticker={sticker} />
-                                                <button
-                                                    type="button"
-                                                    className="selected-sticker-remove"
-                                                    onClick={() => removeSticker(sticker)}
-                                                    title="Прибрати наліпку"
-                                                >
-                                                    ×
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        <MessageComposer
+                            value={formText}
+                            setValue={setFormText}
+                            context="template"
+                            onAlert={setAlert}
+                            disabled={saving}
+                            label={'\u0422\u0435\u043a\u0441\u0442 \u0448\u0430\u0431\u043b\u043e\u043d\u0443'}
+                            placeholder={'\u0412\u0432\u0435\u0434\u0456\u0442\u044c \u0442\u0435\u043a\u0441\u0442 \u0448\u0430\u0431\u043b\u043e\u043d\u0443 \u0430\u0431\u043e \u043f\u0435\u0440\u0435\u0442\u044f\u0433\u043d\u0456\u0442\u044c \u0444\u0430\u0439\u043b\u0438 \u0441\u044e\u0434\u0438...'}
+                            rows={6}
+                            editorRef={textareaRef}
+                            fileInputRef={fileInputRef}
+                            onFileSelect={handleFileSelect}
+                            pasteFromClipboard={pasteFromClipboard}
+                            onPaste={handlePaste}
+                            dropZoneRef={dropZoneRef}
+                            dragHandlers={dragHandlers}
+                            isDragging={isDragging}
+                            dropLabel={'\u0412\u0456\u0434\u043f\u0443\u0441\u0442\u0456\u0442\u044c \u0444\u0430\u0439\u043b\u0438 \u0442\u0443\u0442'}
+                            existingFiles={existingFiles}
+                            files={formFiles}
+                            selectedStickers={selectedStickers}
+                            onAddSticker={addSticker}
+                            onRemoveSticker={removeSticker}
+                            onRemoveExistingFile={(file) => removeExistingFile(file.id)}
+                            onRemoveFile={(_, index) => removeNewFile(index)}
+                            defaultFileStorage="import"
+                            existingFileStorage="template"
+                            onOpenFileError={(text) => setAlert({ type: 'warning', text })}
+                        />
 
                         <div className="btn-group">
                             <button

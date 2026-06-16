@@ -1,17 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
-import EmojiPicker from '../components/EmojiPicker'
 import FilePreviewChip from '../components/FilePreviewChip'
 import FloatingPanel from '../components/FloatingPanel'
-import StickerIcon from '../components/StickerIcon'
-import StickerPicker from '../components/StickerPicker'
+import MessageComposer from '../components/MessageComposer'
 import StickerPreview from '../components/StickerPreview'
-import TelegramTextToolbar from '../components/TelegramTextToolbar'
-import RichTelegramEditor from '../components/RichTelegramEditor'
-import MagicTextButton from '../components/MagicTextButton'
+import { useToast } from '../components/ToastProvider'
 import { AppSelect, NumberStepper, TimePicker } from '../components/FormControls'
+import { useApi } from '../hooks/useApi'
+import { useClipboardFiles } from '../hooks/useClipboardFiles'
+import { useDragDropFiles } from '../hooks/useDragDropFiles'
 import { getSearchVariations } from '../utils/search'
+import { getFileName, getFileType, isServerFile, stickerKey, toServerFile } from '../utils/fileInputs'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 const DAYS = [
     { value: 'daily', label: 'щоденно' },
     { value: 'mon', label: 'понеділок' },
@@ -47,6 +46,36 @@ const DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE = `Вітаю, шановні бат�
 
 Всім гарних вихідних  🦋`
 
+const FOLLOWUP_PLACEHOLDERS = [
+    { token: '{absents}', label: 'Відсутні' },
+    { token: '{makeup_time}', label: 'Час відпрацювання' },
+    { token: '{next_lesson_day}', label: 'День наступного уроку' },
+    { token: '{next_lesson_time_dot}', label: 'Час наступного уроку' },
+    { token: '{group}', label: 'Група' },
+    { token: '{course}', label: 'Курс' },
+    { token: '{lesson_code}', label: 'Урок' }
+]
+
+const FOLLOWUP_TEMPLATE_CARDS = [
+    {
+        key: 'absent_followup_template',
+        title: 'Якщо є відсутні',
+        description: 'Повідомлення з часом відпрацювання та іменами відсутніх.',
+        defaultTemplate: DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
+    },
+    {
+        key: 'no_absents_followup_template',
+        title: 'Якщо відсутніх немає',
+        description: 'Звичайне нагадування батькам про наступний урок.',
+        defaultTemplate: DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE
+    }
+]
+
+const followupPreview = (value) => {
+    const firstLine = String(value || '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
+    return firstLine || 'Шаблон порожній'
+}
+
 function TrashIcon() {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -64,26 +93,25 @@ function AutoMessages() {
     const [groups, setGroups] = useState([])
     const [loading, setLoading] = useState(false)
     const [showForm, setShowForm] = useState(false)
-    const [alert, setAlert] = useState(null)
+    const { showToast } = useToast()
+    const setAlert = showToast
+    const apiClient = useApi()
     const [templates, setTemplates] = useState([])
-    const [showEmoji, setShowEmoji] = useState(false)
-    const [showStickers, setShowStickers] = useState(false)
     const [formFiles, setFormFiles] = useState([])
     const [selectedStickers, setSelectedStickers] = useState([])
-    const [isDragging, setIsDragging] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [followupSettings, setFollowupSettings] = useState(null)
     const [isSavingFollowupSettings, setIsSavingFollowupSettings] = useState(false)
+    const [activeFollowupTemplate, setActiveFollowupTemplate] = useState(null)
     const [editingId, setEditingId] = useState(null)
     const [editDraft, setEditDraft] = useState(null)
     const textareaRef = useRef(null)
+    const followupEditorRefs = useRef({})
     const fileInputRef = useRef(null)
     const dropZoneRef = useRef(null)
     const groupPickerRef = useRef(null)
     const groupPickerControlRef = useRef(null)
     const groupPickerDropdownRef = useRef(null)
-    const emojiButtonRef = useRef(null)
-    const stickerButtonRef = useRef(null)
     const savingRef = useRef(false)
     const [groupSearchQuery, setGroupSearchQuery] = useState('')
     const [isGroupPickerOpen, setIsGroupPickerOpen] = useState(false)
@@ -103,12 +131,6 @@ function AutoMessages() {
     }, [])
 
     useEffect(() => {
-        if (!alert) return
-        const timer = setTimeout(() => setAlert(null), 5000)
-        return () => clearTimeout(timer)
-    }, [alert])
-
-    useEffect(() => {
         const handlePointerDown = (event) => {
             const insidePicker = groupPickerRef.current && groupPickerRef.current.contains(event.target)
             const insideDropdown = groupPickerDropdownRef.current && groupPickerDropdownRef.current.contains(event.target)
@@ -124,37 +146,33 @@ function AutoMessages() {
     const fetchData = async () => {
         setLoading(true)
         try {
-            const [autoMsgRes, groupsRes] = await Promise.all([
-                fetch(`${API_URL}/auto-messages/`),
-                fetch(`${API_URL}/groups/`)
+            const [autoMessagesData, groupsData] = await Promise.all([
+                apiClient.get('/auto-messages/', { toast: false }),
+                apiClient.get('/groups/', { toast: false })
             ])
-            setAutoMessages(await autoMsgRes.json())
-            setGroups(await groupsRes.json())
+            setAutoMessages(autoMessagesData)
+            setGroups(groupsData)
         } catch (error) {
-            setAlert({ type: 'error', text: 'Помилка завантаження автоповідомлень' })
+            setAlert({ type: 'error', text: '\u041f\u043e\u043c\u0438\u043b\u043a\u0430 \u0437\u0430\u0432\u0430\u043d\u0442\u0430\u0436\u0435\u043d\u043d\u044f \u0430\u0432\u0442\u043e\u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u044c' })
         }
         setLoading(false)
     }
 
     const fetchTemplates = async () => {
         try {
-            const response = await fetch(`${API_URL}/templates/`)
-            const data = await response.json()
+            const data = await apiClient.get('/templates/', { toast: false })
             setTemplates(data)
         } catch (error) {
-            console.error('Помилка завантаження шаблонів:', error)
+            console.error('Templates loading error:', error)
         }
     }
 
     const fetchFollowupSettings = async () => {
         try {
-            const response = await fetch(`${API_URL}/parents-report/settings`)
-            const data = await response.json()
-            if (response.ok) {
-                setFollowupSettings(data)
-            }
+            const data = await apiClient.get('/parents-report/settings', { toast: false })
+            setFollowupSettings(data)
         } catch (error) {
-            console.error('Помилка завантаження налаштувань відпрацювання:', error)
+            console.error('Follow-up settings loading error:', error)
         }
     }
 
@@ -168,8 +186,6 @@ function AutoMessages() {
         })
         setFormFiles([])
         setSelectedStickers([])
-        setShowEmoji(false)
-        setShowStickers(false)
         setIsDragging(false)
         setGroupSearchQuery('')
         setIsGroupPickerOpen(false)
@@ -194,15 +210,7 @@ function AutoMessages() {
                 absent_followup_template: followupSettings.absent_followup_template || '',
                 no_absents_followup_template: followupSettings.no_absents_followup_template || ''
             }
-            const response = await fetch(`${API_URL}/parents-report/settings`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            const data = await response.json().catch(() => ({}))
-            if (!response.ok) {
-                throw new Error(data.detail || 'Не вдалося зберегти налаштування')
-            }
+            const data = await apiClient.put('/parents-report/settings', payload, { toast: false })
             setFollowupSettings(data)
             setAlert({ type: 'success', text: 'Налаштування відпрацювання збережено' })
         } catch (error) {
@@ -213,13 +221,38 @@ function AutoMessages() {
     }
 
     const resetFollowupTemplate = (key) => {
-        const template = key === 'no_absents_followup_template'
-            ? DEFAULT_NO_ABSENTS_FOLLOWUP_TEMPLATE
-            : DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
+        const template = FOLLOWUP_TEMPLATE_CARDS.find(card => card.key === key)?.defaultTemplate || DEFAULT_ABSENT_FOLLOWUP_TEMPLATE
         setFollowupSettings(prev => ({
             ...(prev || {}),
             [key]: template
         }))
+    }
+
+    const toggleFollowupTemplate = (key) => {
+        const nextKey = activeFollowupTemplate === key ? null : key
+        setActiveFollowupTemplate(nextKey)
+        if (nextKey) {
+            setTimeout(() => followupEditorRefs.current[nextKey]?.focus?.(), 0)
+        }
+    }
+
+    const insertFollowupText = (text, templateKey = activeFollowupTemplate) => {
+        if (!templateKey) return
+
+        const editor = followupEditorRefs.current[templateKey]
+        if (editor?.insertText) {
+            editor.insertText(text)
+            return
+        }
+
+        setFollowupSettings(prev => ({
+            ...(prev || {}),
+            [templateKey]: `${prev?.[templateKey] || ''}${text}`
+        }))
+    }
+
+    const insertFollowupPlaceholder = (token) => {
+        insertFollowupText(token)
     }
 
     const toggleForm = () => {
@@ -231,30 +264,12 @@ function AutoMessages() {
         }
     }
 
-    const isServerFile = (file) => file && file.source === 'server'
-
-    const getFileName = (file) => file?.name || file?.filename || file?.original_filename || 'file'
-
-    const getFileType = (file) => file?.type || file?.content_type || 'application/octet-stream'
-
-    const toServerFile = (file, storage = 'template') => ({
-        source: 'server',
-        storage: file.storage || storage,
-        stored_filename: file.stored_filename,
-        name: file.filename || file.original_filename || file.name || 'file',
-        filename: file.filename || file.original_filename || file.name || 'file',
-        type: file.type || file.content_type || 'application/octet-stream',
-        size: file.size || 0
-    })
-
     const appendFormFiles = (filesToAdd) => {
         const usableFiles = Array.from(filesToAdd || []).filter(Boolean)
         if (usableFiles.length > 0) {
             setFormFiles(prev => [...prev, ...usableFiles])
         }
     }
-
-    const stickerKey = (sticker) => sticker?.file_id || `${sticker?.pack_short_name || ''}:${sticker?.document_id || sticker?.id || ''}`
 
     const appendStickers = (stickersToAdd) => {
         const usableStickers = Array.from(stickersToAdd || []).filter(stickerKey)
@@ -277,110 +292,27 @@ function AutoMessages() {
         })
     }
 
-    const insertTextAtCursor = (text) => {
-        if (!text) return
-        const el = textareaRef.current
-        const current = formData.message
-        if (el?.insertText) {
-            el.insertText(text)
-            return
-        }
-        if (!el) {
-            setFormData(prev => ({ ...prev, message: prev.message ? `${prev.message}\n\n${text}` : text }))
-            return
-        }
-        const start = el.selectionStart ?? current.length
-        const end = el.selectionEnd ?? current.length
-        const newValue = current.slice(0, start) + text + current.slice(end)
-        setFormData(prev => ({ ...prev, message: newValue }))
-        setTimeout(() => {
-            el.focus()
-            const cursor = start + text.length
-            el.setSelectionRange(cursor, cursor)
-        }, 0)
-    }
-
-    const extractUrlFromHtml = (html) => {
-        if (!html) return ''
-        const doc = new DOMParser().parseFromString(html, 'text/html')
-        return doc.querySelector('img, video, source, a')?.getAttribute('src')
-            || doc.querySelector('a')?.getAttribute('href')
-            || ''
-    }
-
-    const extractUrlFromText = (text) => {
-        const match = (text || '').match(/https?:\/\/[^\s"'<>]+/i)
-        return match ? match[0] : ''
-    }
-
     const importRemoteFile = async (url, filename = '') => {
-        const response = await fetch(`${API_URL}/messages/import-url`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, filename })
-        })
-        const data = await response.json()
-        if (!response.ok) {
-            throw new Error(data.detail || 'Не вдалося імпортувати файл')
-        }
+        const data = await apiClient.post('/messages/import-url', { url, filename }, { toast: false })
         appendFormFiles([toServerFile(data, 'import')])
         setAlert({ type: 'success', text: `Файл додано: ${data.filename}` })
     }
 
-    const addFilesFromClipboardData = async (clipboardData, preventDefault = false) => {
-        const files = []
-        for (const item of Array.from(clipboardData?.items || [])) {
-            if (item.kind === 'file') {
-                const file = item.getAsFile()
-                if (file) files.push(file)
-            }
-        }
+    const { addFilesFromClipboardData, pasteFromClipboard } = useClipboardFiles({
+        appendFiles: appendFormFiles,
+        importRemoteFile,
+        showToast: setAlert,
+        hintText: '\u041d\u0430\u0442\u0438\u0441\u043d\u0456\u0442\u044c Ctrl+V \u0443 \u043f\u043e\u043b\u0456 \u0442\u0435\u043a\u0441\u0442\u0443 \u0430\u0432\u0442\u043e\u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f, \u0449\u043e\u0431 \u0432\u0441\u0442\u0430\u0432\u0438\u0442\u0438 \u0444\u0430\u0439\u043b \u0437 \u0431\u0443\u0444\u0435\u0440\u0430.',
+        blockedText: '\u0414\u043e\u0441\u0442\u0443\u043f \u0434\u043e \u0431\u0443\u0444\u0435\u0440\u0430 \u0437\u0430\u0431\u043b\u043e\u043a\u043e\u0432\u0430\u043d\u043e. \u0421\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 Ctrl+V \u0443 \u043f\u043e\u043b\u0456 \u0442\u0435\u043a\u0441\u0442\u0443 \u0430\u0432\u0442\u043e\u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f.'
+    })
 
-        if (files.length > 0) {
-            if (preventDefault) preventDefault()
-            appendFormFiles(files)
-            return true
-        }
-
-        const htmlUrl = extractUrlFromHtml(clipboardData?.getData('text/html'))
-        const textUrl = extractUrlFromText(
-            clipboardData?.getData('text/uri-list') || clipboardData?.getData('text/plain')
-        )
-        const url = htmlUrl || textUrl
-        if (url) {
-            if (preventDefault) preventDefault()
-            await importRemoteFile(url)
-            return true
-        }
-
-        return false
-    }
-
-    const pasteFromClipboard = async () => {
-        try {
-            if (navigator.clipboard?.read) {
-                const items = await navigator.clipboard.read()
-                const files = []
-                for (const item of items) {
-                    for (const type of item.types) {
-                        if (type.startsWith('image/') || type.startsWith('video/') || type === 'application/pdf') {
-                            const blob = await item.getType(type)
-                            const extension = type.split('/')[1]?.replace('jpeg', 'jpg') || 'bin'
-                            files.push(new File([blob], `clipboard_${Date.now()}.${extension}`, { type }))
-                            break
-                        }
-                    }
-                }
-                if (files.length > 0) {
-                    appendFormFiles(files)
-                    return
-                }
-            }
-            setAlert({ type: 'info', text: 'Натисніть Ctrl+V у полі тексту автоповідомлення, щоб вставити файл з буфера.' })
-        } catch (error) {
-            setAlert({ type: 'warning', text: 'Доступ до буфера заблоковано. Спробуйте Ctrl+V у полі тексту автоповідомлення.' })
-        }
-    }
+    const { isDragging, setIsDragging, dragHandlers } = useDragDropFiles({
+        dropZoneRef,
+        appendFiles: appendFormFiles,
+        importRemoteFile,
+        showToast: setAlert,
+        errorText: '\u041d\u0435 \u0432\u0434\u0430\u043b\u043e\u0441\u044f \u0434\u043e\u0434\u0430\u0442\u0438 \u0444\u0430\u0439\u043b \u0437 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430'
+    })
 
     const insertTemplate = (selectedValue) => {
         const rawValue = selectedValue?.target ? selectedValue.target.value : selectedValue
@@ -408,73 +340,9 @@ function AutoMessages() {
         }
     }
 
-    const insertEmoji = (emoji) => {
-        const el = textareaRef.current
-        const current = formData.message
-        if (el?.insertText) {
-            el.insertText(emoji)
-            return
-        }
-        if (!el) {
-            setFormData(prev => ({ ...prev, message: prev.message + emoji }))
-            return
-        }
-        const start = el.selectionStart
-        const end = el.selectionEnd
-        const newVal = current.slice(0, start) + emoji + current.slice(end)
-        setFormData(prev => ({ ...prev, message: newVal }))
-        setTimeout(() => {
-            el.focus()
-            el.setSelectionRange(start + emoji.length, start + emoji.length)
-        }, 0)
-    }
-
     const handleFileSelect = (e) => {
         appendFormFiles(e.target.files)
         e.target.value = ''
-    }
-
-    const handleDragEnter = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(true)
-    }
-
-    const handleDragOver = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-    }
-
-    const handleDragLeave = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (dropZoneRef.current && dropZoneRef.current.contains(e.relatedTarget)) {
-            return
-        }
-        setIsDragging(false)
-    }
-
-    const handleDrop = async (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(false)
-
-        const droppedFiles = Array.from(e.dataTransfer.files || []).filter(file => file.size > 0)
-        if (droppedFiles.length > 0) {
-            appendFormFiles(droppedFiles)
-            return
-        }
-
-        const htmlUrl = extractUrlFromHtml(e.dataTransfer.getData('text/html'))
-        const textUrl = extractUrlFromText(e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'))
-        const url = htmlUrl || textUrl
-        if (!url) return
-
-        try {
-            await importRemoteFile(url)
-        } catch (error) {
-            setAlert({ type: 'error', text: error.message || 'Не вдалося додати файл з браузера' })
-        }
     }
 
     const handlePaste = async (e) => {
@@ -562,20 +430,11 @@ function AutoMessages() {
             }))))
             localFiles.forEach(file => payload.append('files', file))
 
-            const response = await fetch(`${API_URL}/auto-messages/`, {
-                method: 'POST',
-                body: payload
-            })
-            const data = await response.json().catch(() => ({}))
-
-            if (response.ok) {
+            await apiClient.form('/auto-messages/', payload, 'POST', { toast: false })
                 setAlert({ type: 'success', text: 'Автоповідомлення створено!' })
                 setShowForm(false)
                 resetForm()
                 fetchData()
-            } else {
-                setAlert({ type: 'error', text: data.detail || 'Помилка створення автоповідомлення' })
-            }
         } catch (error) {
             setAlert({ type: 'error', text: 'Помилка підключення' })
         } finally {
@@ -588,11 +447,7 @@ function AutoMessages() {
         if (!confirm('Видалити це автоповідомлення?')) return
 
         try {
-            const response = await fetch(`${API_URL}/auto-messages/${id}`, { method: 'DELETE' })
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({}))
-                throw new Error(data.detail || 'Помилка видалення')
-            }
+            await apiClient.delete(`/auto-messages/${id}`, { toast: false })
             fetchData()
             setAlert({ type: 'success', text: 'Автоповідомлення видалено' })
         } catch (error) {
@@ -602,11 +457,7 @@ function AutoMessages() {
 
     const toggleAutoMessage = async (id) => {
         try {
-            const response = await fetch(`${API_URL}/auto-messages/${id}/toggle`, { method: 'PUT' })
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({}))
-                throw new Error(data.detail || 'Помилка')
-            }
+            await apiClient.request('PUT', `/auto-messages/${id}/toggle`, undefined, { toast: false })
             fetchData()
             setAlert({ type: 'success', text: 'Статус автоповідомлення змінено' })
         } catch (error) {
@@ -632,20 +483,12 @@ function AutoMessages() {
     const saveAutoMessageEdit = async (id) => {
         if (!editDraft) return
         try {
-            const response = await fetch(`${API_URL}/auto-messages/${id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: editDraft.message,
-                    send_day: editDraft.send_day,
-                    send_time: editDraft.send_time,
-                    repeat_count: Number(editDraft.repeat_count ?? 1)
-                })
-            })
-            const data = await response.json().catch(() => ({}))
-            if (!response.ok) {
-                throw new Error(data.detail || 'Не вдалося оновити автоповідомлення')
-            }
+            await apiClient.put(`/auto-messages/${id}`, {
+                message: editDraft.message,
+                send_day: editDraft.send_day,
+                send_time: editDraft.send_time,
+                repeat_count: Number(editDraft.repeat_count ?? 1)
+            }, { toast: false })
             setEditingId(null)
             setEditDraft(null)
             await fetchData()
@@ -710,136 +553,169 @@ function AutoMessages() {
         setIsGroupPickerOpen(true)
     }
 
+    const renderFollowupSettingsCard = () => {
+        if (!followupSettings) return null
+
+        return (
+            <div className="card absent-followup-card">
+                <div className="absent-followup-header">
+                    <div>
+                        <h3 className="card-title">Повідомлення після звіту</h3>
+                        <p>Програма автоматично підготує нагадування після успішного звіту і запланує його перед наступним уроком.</p>
+                    </div>
+                    <label className="parents-inline-toggle absent-followup-toggle">
+                        <input
+                            type="checkbox"
+                            checked={!!followupSettings.absent_followup_enabled}
+                            onChange={(event) => updateFollowupSetting('absent_followup_enabled', event.target.checked)}
+                        />
+                        <span className="parents-inline-toggle-track">
+                            <span className="parents-inline-toggle-thumb" />
+                        </span>
+                        <span className="parents-inline-toggle-state">
+                            {followupSettings.absent_followup_enabled ? 'Увімкнено' : 'Вимкнено'}
+                        </span>
+                    </label>
+                </div>
+
+                <div className="absent-followup-grid">
+                    <label className="form-group">
+                        <span className="form-label">Коли створювати</span>
+                        <AppSelect
+                            value={followupSettings.absent_followup_schedule_mode || 'after_report'}
+                            options={[
+                                { value: 'after_report', label: 'Після відправки звіту' },
+                                { value: 'before_next_lesson', label: 'Перед наступним уроком' }
+                            ]}
+                            onChange={(value) => updateFollowupSetting('absent_followup_schedule_mode', value)}
+                            ariaLabel="Коли створювати відкладене повідомлення"
+                        />
+                    </label>
+
+                    {followupSettings.absent_followup_schedule_mode === 'before_next_lesson' ? (
+                        <label className="form-group">
+                            <span className="form-label">Час попереднього дня</span>
+                            <TimePicker
+                                value={followupSettings.absent_followup_before_lesson_time || '20:00'}
+                                onChange={(value) => updateFollowupSetting('absent_followup_before_lesson_time', value)}
+                                ariaLabel="Час відкладеного повідомлення перед наступним уроком"
+                            />
+                        </label>
+                    ) : (
+                        <label className="form-group">
+                            <span className="form-label">Через скільки хв створити</span>
+                            <NumberStepper
+                                value={followupSettings.absent_followup_delay_minutes ?? 5}
+                                min={0}
+                                max={10080}
+                                onChange={(value) => updateFollowupSetting('absent_followup_delay_minutes', value)}
+                                ariaLabel="Затримка після звіту"
+                            />
+                        </label>
+                    )}
+                </div>
+
+                <div className="followup-scenario-list">
+                    {FOLLOWUP_TEMPLATE_CARDS.map(card => {
+                        const isOpen = activeFollowupTemplate === card.key
+                        const value = followupSettings[card.key] || ''
+                        const followupEditorRef = {
+                            get current() {
+                                return followupEditorRefs.current[card.key] || null
+                            },
+                            set current(node) {
+                                if (node) followupEditorRefs.current[card.key] = node
+                                else delete followupEditorRefs.current[card.key]
+                            }
+                        }
+
+                        return (
+                            <section key={card.key} className={`followup-scenario-card ${isOpen ? 'open' : ''}`}>
+                                <button
+                                    type="button"
+                                    className="followup-scenario-summary"
+                                    onClick={() => toggleFollowupTemplate(card.key)}
+                                    aria-expanded={isOpen}
+                                >
+                                    <span className="followup-scenario-icon">{card.key === 'absent_followup_template' ? '🔔' : '✅'}</span>
+                                    <span className="followup-scenario-main">
+                                        <strong>{card.title}</strong>
+                                        <small>{card.description}</small>
+                                        <span>{followupPreview(value)}</span>
+                                    </span>
+                                    <span className="followup-scenario-action">{isOpen ? 'Згорнути' : 'Редагувати'}</span>
+                                </button>
+
+                                {isOpen && (
+                                    <div className="followup-scenario-editor">
+                                        <MessageComposer
+                                            value={value}
+                                            setValue={(nextText) => updateFollowupSetting(card.key, nextText)}
+                                            context="auto_message"
+                                            onAlert={setAlert}
+                                            disabled={isSavingFollowupSettings}
+                                            rows={7}
+                                            editorRef={followupEditorRef}
+                                            allowFiles={false}
+                                            allowStickers={false}
+                                            editorClassName="form-textarea absent-followup-template"
+                                            placeholder={'\u041d\u0430\u043f\u0438\u0448\u0456\u0442\u044c \u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f...'}
+                                            placeholderTokens={FOLLOWUP_PLACEHOLDERS}
+                                        />
+
+                                        <div className="followup-placeholder-panel">
+                                            <span>Вставити змінну</span>
+                                            <div className="followup-placeholder-list">
+                                                {FOLLOWUP_PLACEHOLDERS.map(item => (
+                                                    <button
+                                                        key={item.token}
+                                                        type="button"
+                                                        className="followup-placeholder-chip"
+                                                        onClick={() => insertFollowupPlaceholder(item.token)}
+                                                        title={item.token}
+                                                    >
+                                                        {item.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="followup-editor-actions">
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary btn-sm"
+                                                onClick={() => resetFollowupTemplate(card.key)}
+                                            >
+                                                Повернути шаблон
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </section>
+                        )
+                    })}
+                </div>
+
+                <div className="absent-followup-actions">
+                    <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={saveFollowupSettings}
+                        disabled={isSavingFollowupSettings}
+                    >
+                        {isSavingFollowupSettings ? 'Зберігаю...' : 'Зберегти повідомлення'}
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div>
             <div className="page-header">
                 <h2>Автоповідомлення</h2>
                 <p>Налаштуйте автоматичні повідомлення з текстом і файлами</p>
             </div>
-
-            {alert && (
-                <div className={`alert alert-${alert.type}`}>
-                    {alert.text}
-                </div>
-            )}
-
-            {followupSettings && (
-                <div className="card absent-followup-card">
-                    <div className="absent-followup-header">
-                        <div>
-                            <h3 className="card-title">Повідомлення після звіту</h3>
-                            <p>
-                                Після успішного звіту програма створить відкладене повідомлення: окремо для уроків з відсутніми і без відсутніх.
-                            </p>
-                        </div>
-                        <label className="parents-inline-toggle absent-followup-toggle">
-                            <input
-                                type="checkbox"
-                                checked={!!followupSettings.absent_followup_enabled}
-                                onChange={(event) => updateFollowupSetting('absent_followup_enabled', event.target.checked)}
-                            />
-                            <span className="parents-inline-toggle-track">
-                                <span className="parents-inline-toggle-thumb" />
-                            </span>
-                            <span className="parents-inline-toggle-state">
-                                {followupSettings.absent_followup_enabled ? 'Увімкнено' : 'Вимкнено'}
-                            </span>
-                        </label>
-                    </div>
-
-                    <div className="absent-followup-grid">
-                        <label className="form-group">
-                            <span className="form-label">Коли створювати відкладене</span>
-                            <AppSelect
-                                value={followupSettings.absent_followup_schedule_mode || 'after_report'}
-                                options={[
-                                    { value: 'after_report', label: 'Після відправки звіту' },
-                                    { value: 'before_next_lesson', label: 'Перед наступним уроком' }
-                                ]}
-                                onChange={(value) => updateFollowupSetting('absent_followup_schedule_mode', value)}
-                                ariaLabel="Коли створювати відкладене повідомлення"
-                            />
-                        </label>
-
-                        {followupSettings.absent_followup_schedule_mode === 'before_next_lesson' ? (
-                            <label className="form-group">
-                                <span className="form-label">Час попереднього дня</span>
-                                <TimePicker
-                                    value={followupSettings.absent_followup_before_lesson_time || '20:00'}
-                                    onChange={(value) => updateFollowupSetting('absent_followup_before_lesson_time', value)}
-                                    ariaLabel="Час відкладеного повідомлення перед наступним уроком"
-                                />
-                            </label>
-                        ) : (
-                            <label className="form-group">
-                                <span className="form-label">Затримка після звіту, хв</span>
-                                <NumberStepper
-                                    value={followupSettings.absent_followup_delay_minutes ?? 5}
-                                    min={0}
-                                    max={10080}
-                                    onChange={(value) => updateFollowupSetting('absent_followup_delay_minutes', value)}
-                                    ariaLabel="Затримка після звіту"
-                                />
-                            </label>
-                        )}
-                    </div>
-
-                    <div className="absent-followup-template-grid">
-                        <div className="absent-followup-template-panel">
-                            <label className="form-group">
-                                <span className="form-label">Якщо є відсутні</span>
-                                <textarea
-                                    className="form-textarea absent-followup-template"
-                                    value={followupSettings.absent_followup_template || ''}
-                                    onChange={(event) => updateFollowupSetting('absent_followup_template', event.target.value)}
-                                    rows={8}
-                                />
-                            </label>
-                            <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => resetFollowupTemplate('absent_followup_template')}
-                            >
-                                Повернути шаблон
-                            </button>
-                        </div>
-
-                        <div className="absent-followup-template-panel">
-                            <label className="form-group">
-                                <span className="form-label">Якщо відсутніх немає</span>
-                                <textarea
-                                    className="form-textarea absent-followup-template"
-                                    value={followupSettings.no_absents_followup_template || ''}
-                                    onChange={(event) => updateFollowupSetting('no_absents_followup_template', event.target.value)}
-                                    rows={8}
-                                />
-                            </label>
-                            <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => resetFollowupTemplate('no_absents_followup_template')}
-                            >
-                                Повернути шаблон
-                            </button>
-                        </div>
-                    </div>
-
-                    <span className="absent-followup-hint">
-                        Плейсхолдери: {'{absents}'}, {'{makeup_time}'}, {'{next_lesson_day}'}, {'{next_lesson_time_dot}'}, {'{group}'}, {'{course}'}, {'{lesson_code}'}.
-                    </span>
-
-                    <div className="absent-followup-actions">
-                        <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={saveFollowupSettings}
-                            disabled={isSavingFollowupSettings}
-                        >
-                            {isSavingFollowupSettings ? 'Зберігаю...' : 'Зберегти повідомлення'}
-                        </button>
-                    </div>
-                </div>
-            )}
 
             <div style={{ marginBottom: '24px' }}>
                 <button className="btn btn-primary" onClick={toggleForm} disabled={isSaving}>
@@ -916,188 +792,44 @@ function AutoMessages() {
                             </FloatingPanel>
                         </div>
                     </div>
-
-                    <div
-                        ref={dropZoneRef}
-                        onDragEnter={handleDragEnter}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        style={{
-                            position: 'relative',
-                            borderRadius: 'var(--radius-sm)',
-                            border: isDragging ? '2px dashed var(--primary)' : '1px solid transparent',
-                            background: isDragging ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
-                            transition: 'border 0.15s ease, background 0.15s ease',
-                            padding: isDragging ? '10px' : '0'
-                        }}
-                    >
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                background: 'rgba(30, 41, 59, 0.88)',
-                                borderRadius: 'var(--radius-sm)',
-                                color: 'var(--primary)',
-                                fontWeight: 'bold',
-                                fontSize: '1.05rem',
-                                pointerEvents: 'none',
-                                zIndex: 10,
-                                opacity: isDragging ? 1 : 0,
-                                visibility: isDragging ? 'visible' : 'hidden',
-                                transition: 'opacity 0.1s ease'
-                            }}
-                        >
-                            Відпустіть файли тут
-                        </div>
-
-                        <div className="form-group">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-                                <label className="form-label" style={{ margin: 0 }}>Текст повідомлення та файли</label>
-                                <div className="message-tools-row">
-                                    <MagicTextButton
-                                        value={formData.message}
-                                        setValue={(nextMessage) => setFormData(prev => ({ ...prev, message: nextMessage }))}
-                                        context="auto_message"
-                                        onAlert={setAlert}
-                                        disabled={isSaving}
-                                    />
-                                    <div className="emoji-picker-wrap">
-                                        <button
-                                            ref={emojiButtonRef}
-                                            className="emoji-trigger-btn"
-                                            onClick={() => {
-                                                setShowEmoji(v => !v)
-                                                setShowStickers(false)
-                                            }}
-                                            title="Додати смайлик"
-                                            type="button"
-                                            style={{ fontSize: '1.3rem', opacity: 1 }}
-                                        >
-                                            😊
-                                        </button>
-                                        {showEmoji && (
-                                            <EmojiPicker
-                                                anchorRef={emojiButtonRef}
-                                                onSelect={(emoji) => insertEmoji(emoji)}
-                                                onClose={() => setShowEmoji(false)}
-                                            />
-                                        )}
-                                    </div>
-                                    <div className="sticker-picker-wrap">
-                                        <button
-                                            ref={stickerButtonRef}
-                                            className="emoji-trigger-btn"
-                                            onClick={() => {
-                                                setShowStickers(v => !v)
-                                                setShowEmoji(false)
-                                            }}
-                                            title="Додати наліпку"
-                                            type="button"
-                                            style={{ opacity: 1 }}
-                                        >
-                                            <StickerIcon />
-                                        </button>
-                                        {showStickers && (
-                                            <StickerPicker
-                                                anchorRef={stickerButtonRef}
-                                                onSelect={addSticker}
-                                                onClose={() => setShowStickers(false)}
-                                            />
-                                        )}
-                                    </div>
-                                    <TelegramTextToolbar
-                                        textareaRef={textareaRef}
-                                        value={formData.message}
-                                        setValue={(nextMessage) => setFormData(prev => ({ ...prev, message: nextMessage }))}
-                                    />
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary btn-sm"
-                                        onClick={() => fileInputRef.current?.click()}
-                                    >
-                                        + Додати файли
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary btn-sm"
-                                        onClick={pasteFromClipboard}
-                                    >
-                                        Вставити з буфера
-                                    </button>
-                                    <input
-                                        ref={fileInputRef}
-                                        type="file"
-                                        multiple
-                                        style={{ display: 'none' }}
-                                        onChange={handleFileSelect}
-                                    />
-                                </div>
+                    <MessageComposer
+                        value={formData.message}
+                        setValue={(nextMessage) => setFormData(prev => ({ ...prev, message: nextMessage }))}
+                        context="auto_message"
+                        onAlert={setAlert}
+                        disabled={isSaving}
+                        label={'\u0422\u0435\u043a\u0441\u0442 \u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f \u0442\u0430 \u0444\u0430\u0439\u043b\u0438'}
+                        placeholder={'\u041d\u0430\u043f\u0440\u0438\u043a\u043b\u0430\u0434: \u0421\u043a\u043e\u0440\u043e \u0443\u0440\u043e\u043a! \u0410\u0431\u043e \u043f\u0435\u0440\u0435\u0442\u044f\u0433\u043d\u0456\u0442\u044c \u0444\u0430\u0439\u043b\u0438 \u0441\u044e\u0434\u0438...'}
+                        rows={5}
+                        editorRef={textareaRef}
+                        fileInputRef={fileInputRef}
+                        onFileSelect={handleFileSelect}
+                        pasteFromClipboard={pasteFromClipboard}
+                        onPaste={handlePaste}
+                        dropZoneRef={dropZoneRef}
+                        dragHandlers={dragHandlers}
+                        isDragging={isDragging}
+                        dropLabel={'\u0412\u0456\u0434\u043f\u0443\u0441\u0442\u0456\u0442\u044c \u0444\u0430\u0439\u043b\u0438 \u0442\u0443\u0442'}
+                        files={formFiles}
+                        selectedStickers={selectedStickers}
+                        onAddSticker={addSticker}
+                        onRemoveSticker={removeSticker}
+                        onRemoveFile={(_, index) => removeFile(index)}
+                        defaultFileStorage="import"
+                        onOpenFileError={(text) => setAlert({ type: 'warning', text })}
+                        beforeEditor={templates.length > 0 && (
+                            <div className="template-insert-bar" style={{ marginBottom: '8px' }}>
+                                <label>{'\u0428\u0430\u0431\u043b\u043e\u043d:'}</label>
+                                <AppSelect
+                                    value=""
+                                    options={templates.map(t => ({ value: t.id, label: t.name }))}
+                                    placeholder={'\u0412\u0438\u0431\u0440\u0430\u0442\u0438 \u0448\u0430\u0431\u043b\u043e\u043d \u0434\u043b\u044f \u0432\u0441\u0442\u0430\u0432\u043a\u0438...'}
+                                    onChange={insertTemplate}
+                                    ariaLabel={'\u0412\u0438\u0431\u0440\u0430\u0442\u0438 \u0448\u0430\u0431\u043b\u043e\u043d \u0434\u043b\u044f \u0432\u0441\u0442\u0430\u0432\u043a\u0438'}
+                                />
                             </div>
-
-                            {templates.length > 0 && (
-                                <div className="template-insert-bar" style={{ marginBottom: '8px' }}>
-                                    <label>Шаблон:</label>
-                                    <AppSelect
-                                        value=""
-                                        options={templates.map(t => ({ value: t.id, label: t.name }))}
-                                        placeholder="Вибрати шаблон для вставки..."
-                                        onChange={insertTemplate}
-                                        ariaLabel="Вибрати шаблон для вставки"
-                                    />
-                                </div>
-                            )}
-
-                            <RichTelegramEditor
-                                ref={textareaRef}
-                                className="form-textarea"
-                                placeholder="Наприклад: Скоро урок! Або перетягніть файли сюди..."
-                                value={formData.message}
-                                onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                                onPaste={handlePaste}
-                                rows={5}
-                                style={{ position: 'relative', zIndex: 1 }}
-                            />
-
-                            {formFiles.length > 0 && (
-                                <div className="file-preview-list" style={{ marginTop: '12px', marginBottom: 0 }}>
-                                    {formFiles.map((file, index) => (
-                                        <FilePreviewChip
-                                            key={`${getFileName(file)}-${index}`}
-                                            file={file}
-                                            defaultStorage={isServerFile(file) ? file.storage : 'import'}
-                                            onRemove={() => removeFile(index)}
-                                            onOpenError={(text) => setAlert({ type: 'warning', text })}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-
-                            {selectedStickers.length > 0 && (
-                                <div className="selected-sticker-list">
-                                    {selectedStickers.map(sticker => {
-                                        const stickerKey = sticker.file_id || `${sticker.pack_short_name || ''}:${sticker.document_id || sticker.id || ''}`
-                                        return (
-                                            <div key={stickerKey} className="selected-sticker-chip">
-                                                <StickerPreview sticker={sticker} />
-                                                <button
-                                                    type="button"
-                                                    className="selected-sticker-remove"
-                                                    onClick={() => removeSticker(sticker)}
-                                                    title="Прибрати наліпку"
-                                                >
-                                                    ×
-                                                </button>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                        )}
+                    />
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
                         <div className="form-group">
@@ -1326,6 +1058,8 @@ function AutoMessages() {
                     </div>
                 )}
             </div>
+
+            {renderFollowupSettingsCard()}
         </div>
     )
 }

@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.3",
+  "download_url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.3/SchoolManager_Setup.exe",
+  "changelog": "Покращено повідомлення після звіту: нагадування плануються перед наступним уроком.\nОновлено блок повідомлень після звіту та редактори шаблонів.\nПокращено стабільність macOS-збірки: один DMG/app, ad-hoc signing і додаткові macOS-залежності.\nОновлено перевірки релізу без особистих даних.\nПідготовлено документацію та релізні файли для v2.3.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.3/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/V2.3/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

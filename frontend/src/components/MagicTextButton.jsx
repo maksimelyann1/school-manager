@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
+import { api } from '../api/client'
+import { useToast } from './ToastProvider'
 
 function MagicTextButton({
     value,
@@ -11,6 +11,7 @@ function MagicTextButton({
 }) {
     const [isPolishing, setIsPolishing] = useState(false)
     const [undoText, setUndoText] = useState(null)
+    const { showToast } = useToast()
 
     useEffect(() => {
         if (!String(value || '').trim()) {
@@ -21,6 +22,8 @@ function MagicTextButton({
     const showAlert = (type, text) => {
         if (typeof onAlert === 'function') {
             onAlert({ type, text })
+        } else {
+            showToast({ type, text })
         }
     }
 
@@ -35,16 +38,7 @@ function MagicTextButton({
 
         setIsPolishing(true)
         try {
-            const response = await fetch(`${API_URL}/ai/polish-text`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: currentText, context })
-            })
-            const data = await response.json().catch(() => ({}))
-            if (!response.ok) {
-                throw new Error(data.detail || 'Не вдалося покращити текст')
-            }
-
+            const data = await api.post('/ai/polish-text', { text: currentText, context })
             const nextText = String(data.text || '').trim()
             if (!nextText) {
                 throw new Error('Google AI не повернув текст')

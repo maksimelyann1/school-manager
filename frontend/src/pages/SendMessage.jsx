@@ -1,20 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { saveFilesToDB, getFilesFromDB, deleteOldFilesFromDB } from '../utils/db'
 import { getSearchVariations } from '../utils/search'
-import EmojiPicker from '../components/EmojiPicker'
-import FilePreviewChip from '../components/FilePreviewChip'
 import HistoryFileChip from '../components/HistoryFileChip'
-import StickerPicker from '../components/StickerPicker'
+import MessageComposer from '../components/MessageComposer'
 import StickerPreview from '../components/StickerPreview'
-import StickerIcon from '../components/StickerIcon'
-import TelegramTextToolbar from '../components/TelegramTextToolbar'
-import RichTelegramEditor from '../components/RichTelegramEditor'
-import MagicTextButton from '../components/MagicTextButton'
 import TelegramSendIcon from '../components/TelegramSendIcon'
+import { useToast } from '../components/ToastProvider'
 import { AppSelect } from '../components/FormControls'
+import { useClipboardFiles } from '../hooks/useClipboardFiles'
+import { useDragDropFiles } from '../hooks/useDragDropFiles'
+import { useApi } from '../hooks/useApi'
+import { getFileName, getFileType, isServerFile, stickerKey, toServerFile } from '../utils/fileInputs'
 
 // URL бекенду
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 const HISTORY_RETENTION_DAYS = 7
 
 function SendMessage() {
@@ -25,17 +23,16 @@ function SendMessage() {
     const [message, setMessage] = useState('')
     const [loading, setLoading] = useState(false)
     const [sending, setSending] = useState(false)
-    const [alert, setAlert] = useState(null)
+    const { showToast } = useToast()
+    const setAlert = showToast
+    const apiClient = useApi()
     const [selectedFiles, setSelectedFiles] = useState([])
-    const [isDragging, setIsDragging] = useState(false)
     const [history, setHistory] = useState([])
     const [expandedMsgIds, setExpandedMsgIds] = useState([])
     const [isHistoryExpanded, setIsHistoryExpanded] = useState(() => {
         return localStorage.getItem('isHistoryExpanded') === 'true'
     })
     const [templates, setTemplates] = useState([])
-    const [showEmoji, setShowEmoji] = useState(false)
-    const [showStickers, setShowStickers] = useState(false)
     const [selectedStickers, setSelectedStickers] = useState([])
     const [searchQuery, setSearchQuery] = useState('')
     const [isGroupsExpanded, setIsGroupsExpanded] = useState(false)
@@ -49,8 +46,7 @@ function SendMessage() {
     const [dragOverCategory, setDragOverCategory] = useState(null)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
-    const emojiButtonRef = useRef(null)
-    const stickerButtonRef = useRef(null)
+    const dropZoneRef = useRef(null)
 
     // Фільтровані групи по категорії та пошуку
     const filteredGroups = groups.filter(g => {
@@ -126,16 +122,9 @@ function SendMessage() {
             return
         }
         try {
-            const response = await fetch(`${API_URL}/categories/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newCategoryName.trim() })
-            })
-            if (response.ok) {
-                const newCat = await response.json()
-                setCategories([...categories, newCat])
-                setCategoryFilter(newCat.id)
-            }
+            const newCat = await apiClient.post('/categories/', { name: newCategoryName.trim() }, { toast: false })
+            setCategories(prev => [...prev, newCat])
+            setCategoryFilter(newCat.id)
         } catch (error) {
             console.error('Помилка створення категорії:', error)
         }
@@ -174,15 +163,7 @@ function SendMessage() {
         }
 
         try {
-            const response = await fetch(`${API_URL}/categories/${renamingCategory.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
-            })
-            const data = await response.json().catch(() => ({}))
-            if (!response.ok) {
-                throw new Error(data.detail || 'Не вдалося перейменувати категорію')
-            }
+            const data = await apiClient.put(`/categories/${renamingCategory.id}`, { name }, { toast: false })
 
             const updatedCategory = data.id ? data : { ...renamingCategory, name }
             setCategories(prev => prev.map(cat => cat.id === renamingCategory.id ? updatedCategory : cat))
@@ -255,16 +236,7 @@ function SendMessage() {
         )))
 
         try {
-            const response = await fetch(`${API_URL}/groups/bulk-category`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_ids: groupIds, category_id: categoryId })
-            })
-
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({}))
-                throw new Error(data.detail || 'Не вдалося перенести групи')
-            }
+            await apiClient.patch('/groups/bulk-category', { group_ids: groupIds, category_id: categoryId }, { toast: false })
             setAlert({ type: 'success', text: `Перенесено груп: ${groupIds.length}` })
         } catch (error) {
             console.error('Помилка оновлення групи:', error)
@@ -279,11 +251,8 @@ function SendMessage() {
     const fetchGroups = async () => {
         setLoading(true)
         try {
-            const response = await fetch(`${API_URL}/groups/`)
-            if (response.ok) {
-                const data = await response.json()
-                setGroups(data)
-            }
+            const data = await apiClient.get('/groups/', { toast: false })
+            setGroups(data)
         } catch (error) {
             console.error('Помилка завантаження груп:', error)
         }
@@ -292,11 +261,8 @@ function SendMessage() {
 
     const fetchCategories = async () => {
         try {
-            const response = await fetch(`${API_URL}/categories/`)
-            if (response.ok) {
-                const data = await response.json()
-                setCategories(data)
-            }
+            const data = await apiClient.get('/categories/', { toast: false })
+            setCategories(data)
         } catch (error) {
             console.error('Помилка завантаження категорій:', error)
         }
@@ -304,32 +270,12 @@ function SendMessage() {
 
     const fetchTemplates = async () => {
         try {
-            const response = await fetch(`${API_URL}/templates/`)
-            const data = await response.json()
+            const data = await apiClient.get('/templates/', { toast: false })
             setTemplates(data)
         } catch (error) {
             console.error('Помилка завантаження шаблонів:', error)
         }
     }
-
-    const isServerFile = (file) => file && file.source === 'server'
-
-    const getFileName = (file) => file.name || file.filename || file.original_filename || 'file'
-
-    const getFileType = (file) => file.type || file.content_type || 'application/octet-stream'
-
-    const toServerFile = (file, storage = 'template') => ({
-        source: 'server',
-        storage: file.storage || storage,
-        stored_filename: file.stored_filename,
-        name: file.filename || file.original_filename || file.name || 'file',
-        filename: file.filename || file.original_filename || file.name || 'file',
-        type: file.type || file.content_type || 'application/octet-stream',
-        size: file.size || 0,
-        template_file_id: file.id || file.template_file_id || null
-    })
-
-    const stickerKey = (sticker) => sticker?.file_id || `${sticker?.pack_short_name || ''}:${sticker?.document_id || sticker?.id || ''}`
 
     const appendFiles = (filesToAdd) => {
         const usableFiles = filesToAdd.filter(Boolean)
@@ -381,112 +327,31 @@ function SendMessage() {
         }, 0)
     }
 
-    const extractUrlFromHtml = (html) => {
-        if (!html) return ''
-        const doc = new DOMParser().parseFromString(html, 'text/html')
-        return doc.querySelector('img, video, source, a')?.getAttribute('src')
-            || doc.querySelector('a')?.getAttribute('href')
-            || ''
-    }
-
-    const extractUrlFromText = (text) => {
-        const match = (text || '').match(/https?:\/\/[^\s"'<>]+/i)
-        return match ? match[0] : ''
-    }
-
     const importRemoteFile = async (url, filename = '') => {
-        const response = await fetch(`${API_URL}/messages/import-url`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, filename })
-        })
-        const data = await response.json()
-        if (!response.ok) {
-            throw new Error(data.detail || 'Не вдалося імпортувати файл')
-        }
+        const data = await apiClient.post('/messages/import-url', { url, filename }, { toast: false })
         appendFiles([toServerFile(data, 'import')])
         setAlert({ type: 'success', text: `Файл додано: ${data.filename}` })
     }
 
-    const addFilesFromClipboardData = async (clipboardData, preventDefault = false) => {
-        const files = []
-        for (const item of Array.from(clipboardData.items || [])) {
-            if (item.kind === 'file') {
-                const file = item.getAsFile()
-                if (file) files.push(file)
-            }
-        }
+    const { addFilesFromClipboardData, pasteFromClipboard } = useClipboardFiles({
+        appendFiles,
+        importRemoteFile,
+        insertText: insertTextAtCursor,
+        showToast: setAlert,
+        includeText: true,
+        useDesktopClipboard: true,
+        hintText: '\u041d\u0430\u0442\u0438\u0441\u043d\u0456\u0442\u044c Ctrl+V \u0443 \u043f\u043e\u043b\u0456 \u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f, \u0449\u043e\u0431 \u0432\u0441\u0442\u0430\u0432\u0438\u0442\u0438 \u0444\u0430\u0439\u043b\u0438 \u0437 \u0431\u0443\u0444\u0435\u0440\u0430.',
+        blockedText: '\u0414\u043e\u0441\u0442\u0443\u043f \u0434\u043e \u0431\u0443\u0444\u0435\u0440\u0430 \u0437\u0430\u0431\u043b\u043e\u043a\u043e\u0432\u0430\u043d\u043e. \u0421\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 Ctrl+V \u0443 \u043f\u043e\u043b\u0456 \u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f.'
+    })
 
-        if (files.length > 0) {
-            if (preventDefault) preventDefault()
-            appendFiles(files)
-            return true
-        }
+    const { isDragging, setIsDragging, dragHandlers } = useDragDropFiles({
+        dropZoneRef,
+        appendFiles,
+        importRemoteFile,
+        showToast: setAlert,
+        errorText: '\u041d\u0435 \u0432\u0434\u0430\u043b\u043e\u0441\u044f \u0434\u043e\u0434\u0430\u0442\u0438 \u0444\u0430\u0439\u043b \u0437 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430'
+    })
 
-        const htmlUrl = extractUrlFromHtml(clipboardData.getData('text/html'))
-        const textUrl = extractUrlFromText(clipboardData.getData('text/uri-list') || clipboardData.getData('text/plain'))
-        const url = htmlUrl || textUrl
-        if (url) {
-            if (preventDefault) preventDefault()
-            await importRemoteFile(url)
-            return true
-        }
-
-        return false
-    }
-
-    const importDesktopClipboardFiles = async () => {
-        const desktopApi = window.pywebview?.api
-        if (!desktopApi?.import_clipboard_files) return false
-
-        const result = await desktopApi.import_clipboard_files()
-        const files = Array.isArray(result?.files) ? result.files : []
-        if (files.length === 0) return false
-
-        appendFiles(files.map(file => toServerFile(file, 'import')))
-        return true
-    }
-
-    const pasteFromClipboard = async (filesOnly = false) => {
-        try {
-            if (await importDesktopClipboardFiles()) {
-                return
-            }
-
-            if (navigator.clipboard?.read) {
-                try {
-                    const items = await navigator.clipboard.read()
-                    const files = []
-                    for (const item of items) {
-                        for (const type of item.types) {
-                            if (type.startsWith('image/') || type.startsWith('video/') || type === 'application/pdf') {
-                                const blob = await item.getType(type)
-                                const extension = type.split('/')[1]?.replace('jpeg', 'jpg') || 'bin'
-                                files.push(new File([blob], `clipboard_${Date.now()}.${extension}`, { type }))
-                                break
-                            }
-                        }
-                    }
-                    if (files.length > 0) {
-                        appendFiles(files)
-                        return
-                    }
-                } catch (_) {}
-            }
-
-            if (!filesOnly && navigator.clipboard?.readText) {
-                const text = await navigator.clipboard.readText()
-                insertTextAtCursor(text)
-                return
-            }
-
-            setAlert({ type: 'info', text: 'Натисніть Ctrl+V у полі повідомлення, щоб вставити файли з буфера.' })
-        } catch (error) {
-            setAlert({ type: 'warning', text: 'Доступ до буфера заблоковано. Спробуйте Ctrl+V у полі повідомлення.' })
-        }
-    }
-
-    // Вставити обраний шаблон у поле вводу
     const insertTemplate = (selectedValue) => {
         const rawValue = selectedValue?.target ? selectedValue.target.value : selectedValue
         const id = parseInt(rawValue)
@@ -511,25 +376,6 @@ function SendMessage() {
     }
 
     // Вставити емодзі у позицію курсора
-    const insertEmoji = (emoji) => {
-        const el = textareaRef.current
-        if (el?.insertText) {
-            el.insertText(emoji)
-            return
-        }
-        if (!el) { setMessage(prev => prev + emoji); return }
-        const start = el.selectionStart
-        const end = el.selectionEnd
-        const newVal = message.slice(0, start) + emoji + message.slice(end)
-        setMessage(newVal)
-        // Повертаємо фокус та ставимо курсор після емодзі
-        setTimeout(() => {
-            el.focus()
-            el.setSelectionRange(start + emoji.length, start + emoji.length)
-        }, 0)
-    }
-
-    // Вибір/зняття групи
     const toggleGroup = (groupId) => {
         setSelectedGroups(prev =>
             prev.includes(groupId)
@@ -560,52 +406,6 @@ function SendMessage() {
     }
 
     // Вибір файлів та Drag & Drop
-    const dropZoneRef = useRef(null)
-
-    const handleDragEnter = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(true)
-    }
-
-    const handleDragOver = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-    }
-
-    const handleDragLeave = (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        // Ігноруємо вихід на дочірній елемент всередині зони
-        if (dropZoneRef.current && dropZoneRef.current.contains(e.relatedTarget)) {
-            return
-        }
-        setIsDragging(false)
-    }
-
-    const handleDrop = async (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(false)
-        
-        const droppedFiles = Array.from(e.dataTransfer.files || []).filter(file => file.size > 0)
-        if (droppedFiles.length > 0) {
-            appendFiles(droppedFiles)
-            return
-        }
-
-        const htmlUrl = extractUrlFromHtml(e.dataTransfer.getData('text/html'))
-        const textUrl = extractUrlFromText(e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'))
-        const url = htmlUrl || textUrl
-        if (url) {
-            try {
-                await importRemoteFile(url)
-            } catch (error) {
-                setAlert({ type: 'error', text: error.message || 'Не вдалося додати файл з браузера' })
-            }
-        }
-    }
-
     const addSticker = (sticker) => {
         const key = stickerKey(sticker)
         if (!key) return
@@ -718,14 +518,7 @@ function SendMessage() {
                 pack_short_name: sticker.pack_short_name
             }))))
 
-            const response = await fetch(`${API_URL}/messages/send`, {
-                method: 'POST',
-                body: formData,
-                signal: controller.signal
-            })
-
-            if (response.ok) {
-                const result = await response.json()
+            const result = await apiClient.form('/messages/send', formData, 'POST', { signal: controller.signal, toast: false })
                 const successCount = result.results.filter(r => r.success).length
                 const failedResults = result.results.filter(r => !r.success)
                 const elapsed = result.elapsed_seconds ? ` (${result.elapsed_seconds}с)` : ''
@@ -797,16 +590,6 @@ function SendMessage() {
                 setSelectedGroups([])
                 setSelectedFiles([])
                 setSelectedStickers([])
-            } else {
-                const error = await response.json()
-                let errorText = 'Помилка відправки'
-                if (error.detail) {
-                    errorText = Array.isArray(error.detail) 
-                        ? error.detail.map(e => e.msg || JSON.stringify(e)).join(', ')
-                        : error.detail
-                }
-                setAlert({ type: 'error', text: errorText })
-            }
         } catch (error) {
             if (error.name === 'AbortError') {
                 setAlert({ type: 'error', text: 'Перевищено час очікування (10 хв). Спробуйте відправити менший обсяг файлів.' })
@@ -853,14 +636,6 @@ function SendMessage() {
         window.scrollTo({ top: 0, behavior: 'smooth' })
     }
 
-    // Автоматично ховаємо сповіщення
-    useEffect(() => {
-        if (alert) {
-            const timer = setTimeout(() => setAlert(null), 5000)
-            return () => clearTimeout(timer)
-        }
-    }, [alert])
-
     return (
         <div>
             <div className="page-header">
@@ -869,12 +644,6 @@ function SendMessage() {
             </div>
 
             {/* Сповіщення */}
-            {alert && (
-                <div className={`alert alert-${alert.type}`}>
-                    {alert.text}
-                </div>
-            )}
-
             {categoryContextMenu && (
                 <div
                     className="context-menu category-context-menu"
@@ -1112,140 +881,48 @@ function SendMessage() {
 
             {/* Текст повідомлення */}
             <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-                    <h3 className="card-title" style={{ margin: 0 }}>Текст повідомлення та файли</h3>
-                    
-                    {/* Кнопка додавання файлу */}
-                    <div className="message-tools-row">
-                        <MagicTextButton
-                            value={message}
-                            setValue={setMessage}
-                            context="message"
-                            onAlert={setAlert}
-                            disabled={sending}
-                        />
-                        <div className="emoji-picker-wrap">
-                            <button
-                                ref={emojiButtonRef}
-                                className="emoji-trigger-btn"
-                                onClick={() => {
-                                    setShowEmoji(v => !v)
-                                    setShowStickers(false)
-                                }}
-                                title="Додати смайлик"
-                                type="button"
-                                style={{ fontSize: '1.5rem', opacity: 1 }}
-                            >
-                                😊
-                            </button>
-                            {showEmoji && (
-                                <EmojiPicker
-                                    anchorRef={emojiButtonRef}
-                                    onSelect={(emoji) => insertEmoji(emoji)}
-                                    onClose={() => setShowEmoji(false)}
-                                />
-                            )}
-                        </div>
-                        <div className="sticker-picker-wrap">
-                            <button
-                                ref={stickerButtonRef}
-                                className="emoji-trigger-btn"
-                                onClick={() => {
-                                    setShowStickers(v => !v)
-                                    setShowEmoji(false)
-                                }}
-                                title="Додати наліпку"
-                                type="button"
-                                style={{ opacity: 1 }}
-                            >
-                                <StickerIcon />
-                            </button>
-                            {showStickers && (
-                                <StickerPicker
-                                    anchorRef={stickerButtonRef}
-                                    onSelect={addSticker}
-                                    onClose={() => setShowStickers(false)}
-                                />
-                            )}
-                        </div>
-                        <TelegramTextToolbar
-                            textareaRef={textareaRef}
-                            value={message}
-                            setValue={setMessage}
-                        />
-                        <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', margin: 0 }}>
-                            <span style={{ fontSize: '1.2em', marginRight: '4px' }}>+</span> Прикріпити
-                            <input 
-                                ref={fileInputRef}
-                                type="file" 
-                                multiple 
-                                style={{ display: 'none' }} 
-                                onChange={handleFileSelect}
+                <h3 className="card-title" style={{ marginBottom: '16px' }}>{'\u0422\u0435\u043a\u0441\u0442 \u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f \u0442\u0430 \u0444\u0430\u0439\u043b\u0438'}</h3>
+
+                <MessageComposer
+                    value={message}
+                    setValue={setMessage}
+                    context="message"
+                    onAlert={setAlert}
+                    disabled={sending}
+                    placeholder={'\u0412\u0432\u0435\u0434\u0456\u0442\u044c \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f \u0430\u0431\u043e \u043f\u0435\u0440\u0435\u0442\u044f\u0433\u043d\u0456\u0442\u044c \u0444\u0430\u0439\u043b\u0438 \u0441\u044e\u0434\u0438...'}
+                    rows={5}
+                    editorRef={textareaRef}
+                    fileInputRef={fileInputRef}
+                    onFileSelect={handleFileSelect}
+                    pasteFromClipboard={pasteFromClipboard}
+                    onPaste={handlePaste}
+                    onMenuPaste={() => pasteFromClipboard(false)}
+                    onContextMenu={handleContextMenu}
+                    dropZoneRef={dropZoneRef}
+                    dragHandlers={dragHandlers}
+                    isDragging={isDragging}
+                    dropLabel={'\uD83D\uDCC1 \u0412\u0456\u0434\u043f\u0443\u0441\u0442\u0456\u0442\u044c \u0444\u0430\u0439\u043b\u0438 \u0442\u0443\u0442...'}
+                    files={selectedFiles}
+                    selectedStickers={selectedStickers}
+                    onAddSticker={addSticker}
+                    onRemoveSticker={removeSticker}
+                    onRemoveFile={(_, index) => removeFile(index)}
+                    defaultFileStorage="template"
+                    onOpenFileError={(text) => setAlert({ type: 'warning', text })}
+                    editorStyle={{ border: 'none' }}
+                    beforeEditor={templates.length > 0 && (
+                        <div className="template-insert-bar">
+                            <label>{'\uD83D\uDCCB \u0428\u0430\u0431\u043b\u043e\u043d:'}</label>
+                            <AppSelect
+                                value=""
+                                options={templates.map(t => ({ value: t.id, label: t.name }))}
+                                placeholder={'\u0412\u0438\u0431\u0440\u0430\u0442\u0438 \u0448\u0430\u0431\u043b\u043e\u043d \u0434\u043b\u044f \u0432\u0441\u0442\u0430\u0432\u043a\u0438...'}
+                                onChange={insertTemplate}
+                                ariaLabel={'\u0412\u0438\u0431\u0440\u0430\u0442\u0438 \u0448\u0430\u0431\u043b\u043e\u043d \u0434\u043b\u044f \u0432\u0441\u0442\u0430\u0432\u043a\u0438'}
                             />
-                        </label>
-                    </div>
-                </div>
-
-                {/* Панель вставки шаблону */}
-                {templates.length > 0 && (
-                    <div className="template-insert-bar">
-                        <label>📋 Шаблон:</label>
-                        <AppSelect
-                            value=""
-                            options={templates.map(t => ({ value: t.id, label: t.name }))}
-                            placeholder="Вибрати шаблон для вставки..."
-                            onChange={insertTemplate}
-                            ariaLabel="Вибрати шаблон для вставки"
-                        />
-                    </div>
-                )}
-
-                <div 
-                    ref={dropZoneRef}
-                    className="form-group"
-                    onDragEnter={handleDragEnter}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        style={{
-                        position: 'relative',
-                        borderRadius: 'var(--radius-sm)',
-                        border: isDragging ? '2px dashed var(--primary)' : '1px solid transparent',
-                        transition: 'border 0.15s ease',
-                        background: isDragging ? 'rgba(99, 102, 241, 0.06)' : 'transparent'
-                    }}
-                >
-                    {/* Оверлей ЗАВЖДИ в DOM — показується/ховається через CSS, без ремонтування DOM */}
-                    <div 
-                        style={{
-                            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'rgba(30, 41, 59, 0.88)',
-                            borderRadius: 'var(--radius-sm)',
-                            color: 'var(--primary)',
-                            fontWeight: 'bold', fontSize: '1.2rem',
-                            pointerEvents: 'none', // Не перехоплює події миші — важливо!
-                            zIndex: 10,
-                            opacity: isDragging ? 1 : 0,
-                            visibility: isDragging ? 'visible' : 'hidden',
-                            transition: 'opacity 0.1s ease'
-                        }}
-                    >
-                        📁 Відпустіть файли тут...
-                    </div>
-                    <RichTelegramEditor
-                        ref={textareaRef}
-                        className="form-textarea"
-                        placeholder="Введіть текст повідомлення або перетягніть файли сюди..."
-                        value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        onPaste={handlePaste}
-                        onMenuPaste={() => pasteFromClipboard(false)}
-                        rows={5}
-                        style={{ position: 'relative', zIndex: 1, border: 'none' }}
-                    />
-                </div>
-
+                        </div>
+                    )}
+                />
 
                 {contextMenu && (
                     <div
@@ -1253,55 +930,22 @@ function SendMessage() {
                         style={{ left: contextMenu.x, top: contextMenu.y }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <button type="button" onClick={() => runTextCommand('undo')}>Скасувати</button>
-                        <button type="button" onClick={() => runTextCommand('redo')}>Повторити</button>
+                        <button type="button" onClick={() => runTextCommand('undo')}>{'\u0421\u043a\u0430\u0441\u0443\u0432\u0430\u0442\u0438'}</button>
+                        <button type="button" onClick={() => runTextCommand('redo')}>{'\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0438'}</button>
                         <div className="context-menu-separator" />
-                        <button type="button" onClick={() => runTextCommand('cut')}>Вирізати</button>
-                        <button type="button" onClick={() => runTextCommand('copy')}>Копіювати</button>
-                        <button type="button" onClick={() => { setContextMenu(null); pasteFromClipboard(false) }}>Вставити</button>
-                        <button type="button" onClick={() => runTextCommand('selectAll')}>Вибрати все</button>
+                        <button type="button" onClick={() => runTextCommand('cut')}>{'\u0412\u0438\u0440\u0456\u0437\u0430\u0442\u0438'}</button>
+                        <button type="button" onClick={() => runTextCommand('copy')}>{'\u041a\u043e\u043f\u0456\u044e\u0432\u0430\u0442\u0438'}</button>
+                        <button type="button" onClick={() => { setContextMenu(null); pasteFromClipboard(false) }}>{'\u0412\u0441\u0442\u0430\u0432\u0438\u0442\u0438'}</button>
+                        <button type="button" onClick={() => runTextCommand('selectAll')}>{'\u0412\u0438\u0431\u0440\u0430\u0442\u0438 \u0432\u0441\u0435'}</button>
                         <div className="context-menu-separator" />
-                        <button type="button" onClick={() => { setContextMenu(null); fileInputRef.current?.click() }}>Прикріпити файл</button>
-                        <button type="button" onClick={() => { setContextMenu(null); pasteFromClipboard(true) }}>Вставити файли з буфера</button>
+                        <button type="button" onClick={() => { setContextMenu(null); fileInputRef.current?.click() }}>{'\u041f\u0440\u0438\u043a\u0440\u0456\u043f\u0438\u0442\u0438 \u0444\u0430\u0439\u043b'}</button>
+                        <button type="button" onClick={() => { setContextMenu(null); pasteFromClipboard(true) }}>{'\u0412\u0441\u0442\u0430\u0432\u0438\u0442\u0438 \u0444\u0430\u0439\u043b\u0438 \u0437 \u0431\u0443\u0444\u0435\u0440\u0430'}</button>
                         <div className="context-menu-separator" />
-                        <button type="button" onClick={clearMessageText}>Очистити текст</button>
-                        <button type="button" onClick={clearAttachments}>Очистити вкладення</button>
+                        <button type="button" onClick={clearMessageText}>{'\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u0438 \u0442\u0435\u043a\u0441\u0442'}</button>
+                        <button type="button" onClick={clearAttachments}>{'\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u0438 \u0432\u043a\u043b\u0430\u0434\u0435\u043d\u043d\u044f'}</button>
                     </div>
                 )}
 
-
-                {/* Список вибраних файлів */}
-                {selectedFiles.length > 0 && (
-                    <div className="file-preview-list">
-                        {selectedFiles.map((file, index) => (
-                            <FilePreviewChip
-                                key={`${getFileName(file)}-${index}`}
-                                file={file}
-                                defaultStorage="template"
-                                onRemove={() => removeFile(index)}
-                                onOpenError={(text) => setAlert({ type: 'warning', text })}
-                            />
-                        ))}
-                    </div>
-                )}
-
-                {selectedStickers.length > 0 && (
-                    <div className="selected-sticker-list">
-                        {selectedStickers.map(sticker => (
-                            <div key={sticker.file_id} className="selected-sticker-chip">
-                                <StickerPreview sticker={sticker} />
-                                <button
-                                    type="button"
-                                    className="selected-sticker-remove"
-                                onClick={() => removeSticker(sticker)}
-                                    title="Прибрати наліпку"
-                                >
-                                    ×
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
 
                 <button
                     className="btn btn-primary"

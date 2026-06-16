@@ -1,16 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import ResizableTable from '../components/ResizableTable';
+import { useApi } from '../hooks/useApi';
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api';
+const LOG_COLUMN_WIDTHS_KEY = 'school_manager.logs.column_widths.v1';
+const LOG_COLUMNS = [
+    { id: 'timestamp', label: '\u0427\u0430\u0441', width: 190, minWidth: 150, sortKey: 'timestamp' },
+    { id: 'level', label: '\u0420\u0456\u0432\u0435\u043d\u044c', width: 130, minWidth: 110, sortKey: 'level' },
+    { id: 'module', label: '\u041c\u043e\u0434\u0443\u043b\u044c', width: 180, minWidth: 130, sortKey: 'module' },
+    { id: 'message', label: '\u041f\u043e\u0432\u0456\u0434\u043e\u043c\u043b\u0435\u043d\u043d\u044f', width: 720, minWidth: 260 }
+]
+const DEFAULT_LOG_COLUMN_WIDTHS = Object.fromEntries(LOG_COLUMNS.map(column => [column.id, column.width]));
+
+function loadLogColumnWidths() {
+    if (typeof window === 'undefined') return DEFAULT_LOG_COLUMN_WIDTHS;
+    try {
+        const saved = JSON.parse(window.localStorage.getItem(LOG_COLUMN_WIDTHS_KEY) || '{}');
+        return Object.fromEntries(LOG_COLUMNS.map(column => {
+            const width = Number(saved[column.id]);
+            return [
+                column.id,
+                Number.isFinite(width) ? Math.max(column.minWidth || 0, width) : column.width
+            ];
+        }));
+    } catch {
+        return DEFAULT_LOG_COLUMN_WIDTHS;
+    }
+}
 
 export default function Logs() {
+    const api = useApi();
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [columnWidths, setColumnWidths] = useState(loadLogColumnWidths);
+    const [sort, setSort] = useState({ key: 'timestamp', direction: 'desc' });
 
     const fetchLogs = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_URL}/logs`);
-            const data = await response.json();
+            const data = await api.get('/logs', { toast: false });
             setLogs(data);
         } catch (error) {
             console.error("Помилка завантаження логів:", error);
@@ -23,9 +50,7 @@ export default function Logs() {
         if (!window.confirm("Ви впевнені, що хочете очистити весь журнал?")) return;
         
         try {
-            await fetch(`${API_URL}/logs`, {
-                method: 'DELETE'
-            });
+            await api.delete('/logs', { toast: false });
             fetchLogs();
         } catch (error) {
             console.error("Помилка очищення логів:", error);
@@ -35,6 +60,26 @@ export default function Logs() {
     useEffect(() => {
         fetchLogs();
     }, []);
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(LOG_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
+        } catch {
+            // Ignore restricted localStorage contexts.
+        }
+    }, [columnWidths]);
+
+    const sortedLogs = useMemo(() => {
+        const direction = sort.direction === 'desc' ? -1 : 1;
+        return [...logs].sort((left, right) => {
+            if (sort.key === 'timestamp') {
+                return (new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime()) * direction;
+            }
+            const leftValue = String(left[sort.key] || '').toLocaleLowerCase('uk');
+            const rightValue = String(right[sort.key] || '').toLocaleLowerCase('uk');
+            return leftValue.localeCompare(rightValue, 'uk', { numeric: true, sensitivity: 'base' }) * direction;
+        });
+    }, [logs, sort]);
 
     const getLevelBadge = (level) => {
         switch (level) {
@@ -55,6 +100,29 @@ export default function Logs() {
             day: '2-digit', month: '2-digit', year: 'numeric',
             hour: '2-digit', minute: '2-digit', second: '2-digit'
         });
+    };
+
+    const renderLogCell = (log, column) => {
+        switch (column.id) {
+            case 'timestamp':
+                return (
+                    <span style={{ whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+                        {formatDate(log.timestamp)}
+                    </span>
+                );
+            case 'level':
+                return getLevelBadge(log.level);
+            case 'module':
+                return (
+                    <span style={{ fontWeight: 600, color: 'var(--primary-light)' }}>
+                        {log.module}
+                    </span>
+                );
+            case 'message':
+                return log.message;
+            default:
+                return log[column.id] || '';
+        }
     };
 
     return (
@@ -82,34 +150,18 @@ export default function Logs() {
                         <p>Журнал подій порожній</p>
                     </div>
                 ) : (
-                    <div className="table-container">
-                        <table className="table" style={{ fontSize: '0.9rem' }}>
-                            <thead>
-                                <tr>
-                                    <th>Час</th>
-                                    <th>Рівень</th>
-                                    <th>Модуль</th>
-                                    <th>Повідомлення</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {logs.map(log => (
-                                    <tr key={log.id}>
-                                        <td style={{ whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
-                                            {formatDate(log.timestamp)}
-                                        </td>
-                                        <td>{getLevelBadge(log.level)}</td>
-                                        <td>
-                                            <span style={{ fontWeight: 600, color: 'var(--primary-light)' }}>
-                                                {log.module}
-                                            </span>
-                                        </td>
-                                        <td>{log.message}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <ResizableTable
+                        columns={LOG_COLUMNS}
+                        rows={sortedLogs}
+                        columnWidths={columnWidths}
+                        onColumnWidthsChange={setColumnWidths}
+                        sort={sort}
+                        onSortChange={setSort}
+                        renderCell={renderLogCell}
+                        getRowKey={(log) => log.id}
+                        tableClassName="table logs-resizable-table"
+                        wrapperClassName="table-container parents-grid-wrap logs-table-wrap"
+                    />
                 )}
             </div>
         </div>

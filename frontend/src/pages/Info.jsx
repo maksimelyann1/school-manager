@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { API_URL } from '../api/client'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 
 const START_STEPS = [
     'Авторизуйтесь через Telegram акаунт, де є робочі групи.',

@@ -46,10 +46,13 @@ jobs:
           pip install pyinstaller
 
       - name: Compile Python sources
-        run: python -m compileall backend desktop_app.py pyinstaller_runtime_hook.py
+        run: python -m compileall backend desktop_app.py pyinstaller_runtime_hook.py scripts
 
       - name: Build Windows portable
         run: pyinstaller SchoolManager.spec --noconfirm --clean
+
+      - name: Check Windows portable for personal data
+        run: python scripts/check_release_clean.py dist/SchoolManager
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
@@ -57,8 +60,14 @@ jobs:
       - name: Build Windows installer
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss'
 
+      - name: Check Windows installer for personal data
+        run: python scripts/check_release_clean.py dist/SchoolManager_Setup.exe
+
       - name: Compress Windows portable
         run: Compress-Archive -Path dist/SchoolManager -DestinationPath dist/SchoolManager-windows-portable.zip -Force
+
+      - name: Check Windows portable zip for personal data
+        run: python scripts/check_release_clean.py dist/SchoolManager-windows-portable.zip
 
       - name: Upload Windows portable
         uses: actions/upload-artifact@v4
@@ -73,16 +82,8 @@ jobs:
           path: dist/SchoolManager_Setup.exe
 
   build-macos:
-    name: macOS ${{ matrix.arch }} app and dmg
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest
-            arch: arm64
-          - runner: macos-15-intel
-            arch: intel
-    runs-on: ${{ matrix.runner }}
+    name: macOS app and dmg
+    runs-on: macos-15
 
     steps:
       - name: Checkout
@@ -115,34 +116,42 @@ jobs:
           pip install pyinstaller
 
       - name: Compile Python sources
-        run: python -m compileall backend desktop_app.py pyinstaller_runtime_hook.py
+        run: python -m compileall backend desktop_app.py pyinstaller_runtime_hook.py scripts
 
       - name: Build macOS app
         run: pyinstaller SchoolManager.macos.spec --noconfirm --clean
+
+      - name: Check macOS app for personal data
+        run: python scripts/check_release_clean.py dist/SchoolManager.app
+
+      - name: Prepare macOS app for distribution
+        run: |
+          xattr -cr dist/SchoolManager.app || true
+          codesign --force --deep --sign - dist/SchoolManager.app
 
       - name: Create unsigned dmg
         run: |
           mkdir -p dist/dmg
           cp -R dist/SchoolManager.app dist/dmg/
-          hdiutil create -volname "School Manager" -srcfolder dist/dmg -ov -format UDZO dist/SchoolManager-macOS-${{ matrix.arch }}-unsigned.dmg
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            cp dist/SchoolManager-macOS-arm64-unsigned.dmg dist/SchoolManager-macOS-unsigned.dmg
-          fi
+          hdiutil create -volname "School Manager" -srcfolder dist/dmg -ov -format UDZO dist/SchoolManager-macOS-unsigned.dmg
 
       - name: Compress macOS app
-        run: ditto -c -k --sequesterRsrc --keepParent dist/SchoolManager.app dist/SchoolManager-macOS-${{ matrix.arch }}-app-unsigned.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/SchoolManager.app dist/SchoolManager-macOS-app-unsigned.zip
+
+      - name: Check macOS app zip for personal data
+        run: python scripts/check_release_clean.py dist/SchoolManager-macOS-app-unsigned.zip
 
       - name: Upload macOS app
         uses: actions/upload-artifact@v4
         with:
-          name: SchoolManager-macos-${{ matrix.arch }}-app-unsigned
-          path: dist/SchoolManager-macOS-${{ matrix.arch }}-app-unsigned.zip
+          name: SchoolManager-macos-app-unsigned
+          path: dist/SchoolManager-macOS-app-unsigned.zip
 
       - name: Upload macOS dmg
         uses: actions/upload-artifact@v4
         with:
-          name: SchoolManager-macos-${{ matrix.arch }}-dmg-unsigned
-          path: dist/SchoolManager-macOS-*-unsigned.dmg
+          name: SchoolManager-macos-dmg-unsigned
+          path: dist/SchoolManager-macOS-unsigned.dmg
 
   release:
     name: Publish GitHub release

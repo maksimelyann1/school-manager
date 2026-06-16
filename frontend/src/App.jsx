@@ -11,8 +11,8 @@ import Info from './pages/Info'
 import AppContextMenu from './components/AppContextMenu'
 import TelegramAuthPanel from './components/TelegramAuthPanel'
 import logoUrl from './assets/logo.png'
+import { API_URL } from './api/client'
 
-const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 
 // Іконки SVG
 const Icons = {

@@ -44,7 +44,7 @@ function LottieSticker({ src, label, onFailed }) {
     return <div ref={containerRef} className="sticker-lottie" aria-label={label} />
 }
 
-function StickerPreview({ sticker, className = '', animate = false }) {
+function StickerPreview({ sticker, className = '', animate = false, title = '' }) {
     const previewRef = useRef(null)
     const [isVisible, setIsVisible] = useState(false)
     const [thumbObjectUrl, setThumbObjectUrl] = useState('')
@@ -178,7 +178,7 @@ function StickerPreview({ sticker, className = '', animate = false }) {
     })()
 
     return (
-        <span ref={previewRef} className={`sticker-preview ${className}`} title={label}>
+        <span ref={previewRef} className={`sticker-preview ${className}`} title={title || label}>
             {content}
         </span>
     )

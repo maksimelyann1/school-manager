@@ -39,7 +39,6 @@ CONCURRENT_LIMIT_MEDIA = 4
 CONCURRENT_LIMIT_CACHED_MEDIA = 10
 STAGGER_DELAY = 0.12
 CACHED_MEDIA_STAGGER_DELAY = 0.03
-MAX_RETRIES = 3
 MEDIA_GROUP_LIMIT = 10
 CAPTION_LIMIT = 1024
 FILE_READ_CHUNK_SIZE = 1024 * 1024
@@ -566,7 +565,7 @@ async def _send_stickers(client, chat: int, stickers: list, schedule_date=None):
             await client.send_sticker(chat, refreshed_file_id, schedule_date=schedule_date)
 
 
-async def send_pyrogram_message(
+async def _send_pyrogram_message_now(
     chat_id: str,
     text: str,
     file_data_list: list | None = None,
@@ -576,12 +575,16 @@ async def send_pyrogram_message(
 ) -> dict:
     client = pyrogram_manager.client
     if not client or not pyrogram_manager.is_connected:
-        return {"ok": False, "description": "Pyrogram не підключено"}
+        return {"ok": False, "description": "\u0050\u0079\u0072\u006f\u0067\u0072\u0061\u006d \u043d\u0435 \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u043e", "retryable": False}
 
     chat = int(chat_id)
     sticker_file_ids = sticker_file_ids or []
     if not text and not file_data_list and not sticker_file_ids:
-        return {"ok": False, "description": "Немає тексту, файлів або наліпок для відправки"}
+        return {
+            "ok": False,
+            "description": "\u041d\u0435\u043c\u0430\u0454 \u0442\u0435\u043a\u0441\u0442\u0443, \u0444\u0430\u0439\u043b\u0456\u0432 \u0430\u0431\u043e \u043d\u0430\u043b\u0456\u043f\u043e\u043a \u0434\u043b\u044f \u0432\u0456\u0434\u043f\u0440\u0430\u0432\u043a\u0438",
+            "retryable": False,
+        }
 
     conversion_temp_dir = None
     if file_data_list and any(item.get("kind") == "animation" and _is_gif_file_data(item) for item in file_data_list):
@@ -589,49 +592,71 @@ async def send_pyrogram_message(
         try:
             conversion_temp_dir = _prepare_gif_animations(file_data_list)
         except Exception as error:
-            return {"ok": False, "description": f"Не вдалося підготувати GIF-анімацію: {_error_text(error)}"}
+            return {
+                "ok": False,
+                "description": f"\u041d\u0435 \u0432\u0434\u0430\u043b\u043e\u0441\u044f \u043f\u0456\u0434\u0433\u043e\u0442\u0443\u0432\u0430\u0442\u0438 GIF-\u0430\u043d\u0456\u043c\u0430\u0446\u0456\u044e: {_error_text(error)}",
+            }
 
     try:
-        for attempt in range(MAX_RETRIES):
-            try:
-                sent_messages = []
-                if not file_data_list:
-                    if text:
-                        sent_message = await client.send_message(chat, text, schedule_date=schedule_date)
-                        if sent_message is not None:
-                            sent_messages.append(sent_message)
-                else:
-                    await _ensure_client_user(client)
-                    await _send_files(client, chat, text, file_data_list, prefer_cached, schedule_date=schedule_date)
+        sent_messages = []
+        if not file_data_list:
+            if text:
+                sent_message = await client.send_message(chat, text, schedule_date=schedule_date)
+                if sent_message is not None:
+                    sent_messages.append(sent_message)
+        else:
+            await _ensure_client_user(client)
+            await _send_files(client, chat, text, file_data_list, prefer_cached, schedule_date=schedule_date)
 
-                if sticker_file_ids:
-                    await _send_stickers(client, chat, sticker_file_ids, schedule_date=schedule_date)
+        if sticker_file_ids:
+            await _send_stickers(client, chat, sticker_file_ids, schedule_date=schedule_date)
 
-                message_ids = [
-                    getattr(message, "id", None)
-                    for message in sent_messages
-                    if getattr(message, "id", None) is not None
-                ]
-                return {"ok": True, "description": "OK", "message_ids": message_ids}
+        message_ids = [
+            getattr(message, "id", None)
+            for message in sent_messages
+            if getattr(message, "id", None) is not None
+        ]
+        return {"ok": True, "description": "OK", "message_ids": message_ids}
 
-            except FloodWait as error:
-                if attempt >= MAX_RETRIES - 1:
-                    return {
-                        "ok": False,
-                        "description": f"Telegram просить зачекати {error.value} с; спроби вичерпано"
-                    }
-                await asyncio.sleep(error.value)
-
-            except RPCError as error:
-                return {"ok": False, "description": _error_text(error)}
-
-            except Exception as error:
-                return {"ok": False, "description": _error_text(error)}
-
-        return {"ok": False, "description": "Не вдалося відправити після повторних спроб"}
+    except FloodWait as error:
+        return {
+            "ok": False,
+            "description": f"Telegram \u043f\u0440\u043e\u0441\u0438\u0442\u044c \u0437\u0430\u0447\u0435\u043a\u0430\u0442\u0438 {error.value} \u0441",
+            "retry_after": error.value,
+        }
+    except RPCError as error:
+        return {"ok": False, "description": _error_text(error)}
+    except Exception as error:
+        return {"ok": False, "description": _error_text(error)}
     finally:
         if conversion_temp_dir and os.path.exists(conversion_temp_dir):
             shutil.rmtree(conversion_temp_dir, ignore_errors=True)
+
+
+async def send_pyrogram_message(
+    chat_id: str,
+    text: str,
+    file_data_list: list | None = None,
+    prefer_cached: bool = True,
+    schedule_date=None,
+    sticker_file_ids: list | None = None,
+    queue_label: str | None = None,
+) -> dict:
+    from telegram_send_queue import telegram_send_queue
+
+    label = queue_label or f"Telegram chat {chat_id}"
+
+    async def action():
+        return await _send_pyrogram_message_now(
+            chat_id,
+            text,
+            file_data_list=file_data_list,
+            prefer_cached=prefer_cached,
+            schedule_date=schedule_date,
+            sticker_file_ids=sticker_file_ids,
+        )
+
+    return await telegram_send_queue.run(label, action, retries=2)
 
 async def _send_to_one_group_inner(group, message, file_data_list, sticker_file_ids, index, total, prefer_cached: bool):
     print(f"[Send] Sending to '{group.name}' [{index + 1}/{total}]")
@@ -641,7 +666,8 @@ async def _send_to_one_group_inner(group, message, file_data_list, sticker_file_
         message,
         file_data_list if file_data_list else None,
         prefer_cached=prefer_cached,
-        sticker_file_ids=sticker_file_ids
+        sticker_file_ids=sticker_file_ids,
+        queue_label=f"\u0420\u0443\u0447\u043d\u0430 \u0432\u0456\u0434\u043f\u0440\u0430\u0432\u043a\u0430: {group.name}",
     )
 
     success = result["ok"]
@@ -811,7 +837,7 @@ async def import_url_file(payload: ImportUrlRequest):
         raise HTTPException(status_code=400, detail="Підтримуються тільки http/https посилання")
 
     timeout = httpx.Timeout(60.0, connect=10.0)
-    headers = {"User-Agent": "SchoolManager/2.2"}
+    headers = {"User-Agent": "SchoolManager/2.3"}
 
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
