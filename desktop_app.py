@@ -80,6 +80,7 @@ if not getattr(sys, "frozen", False):
     CANDIDATE_URLS.insert(0, "http://127.0.0.1:3000")
 
 START_IN_TRAY_ARGS = {"--start-in-tray", "--tray", "--minimized"}
+SMOKE_TEST_ARGS = {"--smoke-test", "--ci-smoke-test"}
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 MAIN_WINDOW_WIDTH = 1280
 MAIN_WINDOW_HEIGHT = 960
@@ -1037,6 +1038,51 @@ def should_start_in_tray() -> bool:
     return any(arg.lower() in START_IN_TRAY_ARGS for arg in sys.argv[1:])
 
 
+def should_run_smoke_test() -> bool:
+    return any(arg.lower() in SMOKE_TEST_ARGS for arg in sys.argv[1:])
+
+
+def run_smoke_test() -> int:
+    """Lightweight packaged-app startup check for CI builds.
+
+    This intentionally avoids opening pywebview. It verifies the bundled backend
+    can be imported and the built frontend is present, which catches the most
+    common "app does not start" release failures.
+    """
+    try:
+        if not os.path.isdir(BACKEND_DIR):
+            raise RuntimeError(f"Backend directory is missing: {BACKEND_DIR}")
+
+        frontend_index = os.path.join(BASE_DIR, "frontend", "dist", "index.html")
+        if not os.path.isfile(frontend_index):
+            raise RuntimeError(f"Frontend build is missing: {frontend_index}")
+
+        from main import app as backend_app  # noqa: F401
+        from version_config import APP_VERSION
+
+        print(json.dumps({
+            "ok": True,
+            "version": APP_VERSION,
+            "backend_dir": BACKEND_DIR,
+            "frontend_index": frontend_index,
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "platform": sys.platform,
+        }, ensure_ascii=False))
+        return 0
+    except Exception as error:
+        import traceback
+
+        print(json.dumps({
+            "ok": False,
+            "error": str(error),
+            "traceback": traceback.format_exc(),
+            "backend_dir": BACKEND_DIR,
+            "base_dir": BASE_DIR,
+            "platform": sys.platform,
+        }, ensure_ascii=False))
+        return 1
+
+
 def _create_main_window(url: str, start_in_tray: bool):
     global _window, _splash_window
 
@@ -1160,4 +1206,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if should_run_smoke_test():
+        raise SystemExit(run_smoke_test())
     main()

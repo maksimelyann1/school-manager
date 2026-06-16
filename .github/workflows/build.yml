@@ -51,6 +51,9 @@ jobs:
       - name: Build Windows portable
         run: pyinstaller SchoolManager.spec --noconfirm --clean
 
+      - name: Smoke test Windows app
+        run: dist\SchoolManager\SchoolManager.exe --smoke-test
+
       - name: Check Windows portable for personal data
         run: python scripts/check_release_clean.py dist/SchoolManager
 
@@ -120,6 +123,9 @@ jobs:
 
       - name: Build macOS app
         run: pyinstaller SchoolManager.macos.spec --noconfirm --clean
+
+      - name: Smoke test macOS app
+        run: dist/SchoolManager.app/Contents/MacOS/SchoolManager --smoke-test
 
       - name: Check macOS app for personal data
         run: python scripts/check_release_clean.py dist/SchoolManager.app
