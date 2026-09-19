@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.4",
+  "download_url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/School-Manager-V2/SchoolManager_Setup.exe",
+  "changelog": "• Виправлено відкриття та створення шаблонів повідомлень (усунено збій синього вікна).\n• Додано екран захисту від помилок (Error Boundary) для стабільної роботи інтерфейсу.\n• Покращено стабільність та сумісність модулів програми.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/School-Manager-V2/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager-releases/releases/download/School-Manager-V2/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

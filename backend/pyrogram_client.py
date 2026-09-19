@@ -299,7 +299,7 @@ class PyrogramManager:
             api_id=api_id,
             api_hash=api_hash,
             device_model="School Manager",
-            app_version="2.3",
+            app_version="2.4",
             system_version=platform.system() or sys.platform
         )
         self._api_id = int(api_id)

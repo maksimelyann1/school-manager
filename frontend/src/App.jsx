@@ -8,6 +8,7 @@ import Settings from './pages/Settings'
 import Templates from './pages/Templates'
 import Logs from './pages/Logs'
 import Info from './pages/Info'
+import ErrorBoundary from './components/ErrorBoundary'
 import AppContextMenu from './components/AppContextMenu'
 import TelegramAuthPanel from './components/TelegramAuthPanel'
 import logoUrl from './assets/logo.png'
@@ -257,6 +258,7 @@ function App() {
 
                 {/* Основний контент */}
                 <main className="main-content">
+                    <ErrorBoundary>
                     <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/parents-report" element={<ParentsReport />} />
@@ -267,6 +269,7 @@ function App() {
                         <Route path="/logs" element={<Logs />} />
                         <Route path="/info" element={<Info />} />
                     </Routes>
+                    </ErrorBoundary>
                 </main>
             </div>
             <AuthGate />

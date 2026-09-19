@@ -1,4 +1,4 @@
-﻿# API для автоповідомлень через Pyrogram
+# API для автоповідомлень через Pyrogram
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload

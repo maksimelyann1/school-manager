@@ -4,7 +4,7 @@ Application version and update-check configuration.
 Update APP_VERSION before every public release.
 """
 
-APP_VERSION = "2.3"
+APP_VERSION = "2.4"
 
 # Public JSON endpoint used by the app to check for updates.
 # Recommended JSON format:
