@@ -29,6 +29,7 @@ frontend/dist/
 build/
 dist/
 tmp/
+tmp_gist_repo/
 
 # Лог файли
 *.log
