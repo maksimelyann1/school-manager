@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.5.0",
+    version="2.6.0",
     lifespan=lifespan
 )
 
@@ -177,6 +177,22 @@ app.include_router(stickers.router, prefix="/api")
 app.include_router(parents_report.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(logika.router, prefix="/api")
+
+
+import traceback
+from logger import log_event
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = str(exc)
+    error_type = type(exc).__name__
+    trace = traceback.format_exc()
+    log_event("ERROR", "System", f"Помилка сервера при {request.method} {request.url.path}: {error_type}: {error_msg}")
+    print(f"[Unhandled Server Error] {request.method} {request.url.path}:\n{trace}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Внутрішня помилка сервера: {error_msg or error_type}"}
+    )
 
 # Роздача статичних файлів (Frontend)
 import sys
@@ -231,7 +247,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.5 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.6 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }

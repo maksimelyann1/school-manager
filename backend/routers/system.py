@@ -484,6 +484,12 @@ def _build_diagnostic_log() -> str:
         for label, model in counts:
             lines.append(f"{label}: {_count_table(db, model)}")
 
+        from models import LogikaSettings
+        logika_st = db.query(LogikaSettings).first()
+        lines.append(f"logika_configured: {bool(logika_st and logika_st.login and logika_st.password)}")
+        lines.append(f"logika_teacher: {logika_st.teacher_name if logika_st else None}")
+        lines.append(f"logika_last_error: {logika_st.last_error if logika_st else None}")
+        lines.append(f"logika_last_sync_at: {logika_st.last_sync_at if logika_st else None}")
         settings = db.query(BotSettings).first()
         lines.append(f"telegram_settings_exists: {bool(settings)}")
         lines.append(f"telegram_phone_set: {bool(settings and settings.phone)}")

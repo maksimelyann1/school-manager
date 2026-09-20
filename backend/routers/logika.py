@@ -12,6 +12,7 @@ from models import (
     LogikaSettings,
     ParentReportCourse,
     ParentReportCourseLesson,
+    ParentReportGroupMap,
     ParentReportLesson,
 )
 from logika_client import LogikaAuthError, LogikaClient
@@ -207,198 +208,199 @@ def sync_schedule(db: Session = Depends(get_db)):
             active=True,
             is_start_day_now=True,
         )
-    except Exception as e:
-        settings.last_error = str(e)
-        db.commit()
-        log_event("ERROR", "Logika", f"Помилка завантаження розкладу: {e}")
-        raise HTTPException(status_code=500, detail=f"Помилка завантаження розкладу: {e}")
 
-    # Фільтруємо суворо за викладачем та статусом ACTIVE
-    groups_map = {}
-    for item in raw_lessons:
-        if item.get("groupStatus") != "ACTIVE":
-            continue
-        if settings.teacher_id and item.get("teacher", {}).get("key") != settings.teacher_id:
-            continue
-        g_key = item.get("group", {}).get("key")
-        g_name = (item.get("group", {}).get("value") or "").strip()
-        if not g_key or not g_name:
-            continue
-        if g_key not in groups_map:
-            groups_map[g_key] = g_name
+        # Фільтруємо суворо за викладачем та статусом ACTIVE
+        groups_map = {}
+        for item in raw_lessons:
+            if item.get("groupStatus") != "ACTIVE":
+                continue
+            if settings.teacher_id and item.get("teacher", {}).get("key") != settings.teacher_id:
+                continue
+            g_key = item.get("group", {}).get("key")
+            g_name = (item.get("group", {}).get("value") or "").strip()
+            if not g_key or not g_name:
+                continue
+            if g_key not in groups_map:
+                groups_map[g_key] = g_name
 
-    today = datetime.now().date()
-    active_group_names = set()
-    synced_count = 0
-    updated_count = 0
+        today = datetime.now().date()
+        active_group_names = set()
+        synced_count = 0
+        updated_count = 0
 
-    for g_key, g_name in groups_map.items():
-        active_group_names.add(g_name)
+        for g_key, g_name in groups_map.items():
+            active_group_names.add(g_name)
 
-        # Отримуємо повний розклад курсу цієї групи для точного підрахунку уроків
-        all_group_lessons = []
-        try:
-            all_group_lessons = client.get_group_schedule(g_key)
-        except Exception as err:
-            log_event("WARNING", "Logika", f"Не вдалося отримати повний розклад групи {g_name}: {err}")
+            # Отримуємо повний розклад курсу цієї групи для точного підрахунку уроків
+            all_group_lessons = []
+            try:
+                all_group_lessons = client.get_group_schedule(g_key)
+            except Exception as err:
+                log_event("WARNING", "Logika", f"Не вдалося отримати повний розклад групи {g_name}: {err}")
 
-        if not all_group_lessons:
-            continue
+            if not all_group_lessons:
+                continue
 
-        # Сортуємо уроки групи хронологічно
-        all_group_lessons.sort(key=lambda x: x.get("start") or "")
-        finished_lessons = [l for l in all_group_lessons if l.get("lessonStatus") == "FINISH"]
-        curr_finished_count = len(finished_lessons)
+            # Сортуємо уроки групи хронологічно
+            all_group_lessons.sort(key=lambda x: x.get("start") or "")
+            finished_lessons = [l for l in all_group_lessons if l.get("lessonStatus") == "FINISH"]
 
-        # Визначаємо поточний або найближчий урок
-        # Якщо сьогодні є урок — беремо його
-        target_lesson = None
-        target_index = None
-        for idx, it in enumerate(all_group_lessons, 1):
-            if it.get("start"):
-                try:
-                    d = datetime.fromisoformat(it["start"]).date()
-                    if d == today:
-                        target_lesson = it
-                        target_index = idx
-                        break
-                except Exception:
-                    pass
-
-        # Якщо сьогодні уроку немає, беремо наступний запланований урок
-        if not target_lesson:
+            # Визначаємо поточний або найближчий урок
+            target_lesson = None
+            target_index = None
             for idx, it in enumerate(all_group_lessons, 1):
                 if it.get("start"):
                     try:
                         d = datetime.fromisoformat(it["start"]).date()
-                        if d >= today:
+                        if d == today:
                             target_lesson = it
                             target_index = idx
                             break
                     except Exception:
                         pass
 
-        # Якщо всі уроки в минулому, беремо останній
-        if not target_lesson and all_group_lessons:
-            target_lesson = all_group_lessons[-1]
-            target_index = len(all_group_lessons)
+            if not target_lesson:
+                for idx, it in enumerate(all_group_lessons, 1):
+                    if it.get("start"):
+                        try:
+                            d = datetime.fromisoformat(it["start"]).date()
+                            if d >= today:
+                                target_lesson = it
+                                target_index = idx
+                                break
+                        except Exception:
+                            pass
 
-        if not target_lesson:
-            continue
+            if not target_lesson and all_group_lessons:
+                target_lesson = all_group_lessons[-1]
+                target_index = len(all_group_lessons)
 
-        schedule_id = target_lesson.get("id")
-        course_name = (target_lesson.get("course", {}).get("value") or "").strip()
-        lesson_title = (target_lesson.get("lesson", {}).get("value") or "").strip()
+            if not target_lesson:
+                continue
 
-        # Код уроку (напр. М2У4, М2У6, М2У1, М1У2)
-        lesson_code_str = _extract_lesson_code(lesson_title)
+            schedule_id = target_lesson.get("id")
+            course_name = (target_lesson.get("course", {}).get("value") or "").strip()
+            lesson_title = (target_lesson.get("lesson", {}).get("value") or "").strip()
 
-        # Кількість проведених уроків (номер уроку або кількість завершених)
-        lesson_count_str = str(target_index)
+            # Код уроку (напр. М2У4, М2У6, М2У1, М1У2)
+            lesson_code_str = _extract_lesson_code(lesson_title)
 
-        start_iso = target_lesson.get("start")
-        day_str = ""
-        start_time_str = ""
-        if start_iso:
-            try:
-                dt = datetime.fromisoformat(start_iso)
-                day_str = UKR_DAYS.get(dt.weekday(), "")
-                start_time_str = dt.strftime("%H:%M")
-            except Exception:
-                pass
+            # Кількість проведених уроків (номер уроку або кількість завершених)
+            lesson_count_str = str(target_index)
 
-        duration_sec = target_lesson.get("duration") or 5400
-        duration_min = max(30, duration_sec // 60)
+            start_iso = target_lesson.get("start")
+            day_str = ""
+            start_time_str = ""
+            if start_iso:
+                try:
+                    dt = datetime.fromisoformat(start_iso)
+                    day_str = UKR_DAYS.get(dt.weekday(), "")
+                    start_time_str = dt.strftime("%H:%M")
+                except Exception:
+                    pass
 
-        # Отримуємо відсутніх для завершених або сьогоднішніх уроків
-        absents_str = None
-        attended = target_lesson.get("attendedAmount") or 0
-        if target_lesson.get("lessonStatus") == "FINISH" or attended > 0:
-            try:
-                absents_list = client.get_absent_students(schedule_id)
-                if absents_list:
-                    absents_str = ", ".join(absents_list)
-            except Exception as e:
-                log_event("WARNING", "Logika", f"Не вдалося отримати відсутніх для уроку {schedule_id}: {e}")
+            duration_sec = target_lesson.get("duration") or 5400
+            duration_min = max(30, duration_sec // 60)
 
-        # Залишаємо рівно 1 рядок на кожну групу у тижневому розкладі
-        existing_rows = (
-            db.query(ParentReportLesson)
-            .filter(ParentReportLesson.group_name == g_name)
-            .all()
-        )
+            # Отримуємо відсутніх для завершених або сьогоднішніх уроків
+            absents_str = None
+            attended = target_lesson.get("attendedAmount") or 0
+            if target_lesson.get("lessonStatus") == "FINISH" or attended > 0:
+                try:
+                    absents_list = client.get_absent_students(schedule_id)
+                    if absents_list:
+                        absents_str = ", ".join(absents_list)
+                except Exception as e:
+                    log_event("WARNING", "Logika", f"Не вдалося отримати відсутніх для уроку {schedule_id}: {e}")
 
-        if existing_rows:
-            existing = existing_rows[0]
-            for dup in existing_rows[1:]:
-                db.delete(dup)
-            existing.logika_schedule_id = schedule_id
-            existing.lesson_code = lesson_code_str
-            existing.lesson_count = lesson_count_str
-            if lesson_title:
-                existing.lesson_title = lesson_title
-            if course_name:
-                existing.course = course_name
-            if day_str:
-                existing.day = day_str
-            if start_time_str:
-                existing.start_time = start_time_str
-            if duration_min:
-                existing.duration_minutes = duration_min
-            if absents_str is not None:
-                existing.absents = absents_str
-            updated_count += 1
-        else:
-            new_lesson = ParentReportLesson(
-                source_sheet="Logika Backoffice",
-                group_name=g_name,
-                course=course_name,
-                lesson_title=lesson_title,
-                lesson_code=lesson_code_str,
-                lesson_count=lesson_count_str,
-                day=day_str,
-                start_time=start_time_str,
-                duration_minutes=duration_min,
-                logika_schedule_id=schedule_id,
-                absents=absents_str or "",
-                imported_at=datetime.now().isoformat(),
+            # Залишаємо рівно 1 рядок на кожну групу у тижневому розкладі
+            existing_rows = (
+                db.query(ParentReportLesson)
+                .filter(ParentReportLesson.group_name == g_name)
+                .all()
             )
-            # Не робимо автопідстановку за здогадками, щоб не відправити звіт не в ту групу
-            # Беремо тільки якщо користувач раніше вже зберіг мапінг для цієї назви
-            legacy = db.query(ParentReportGroupMap).filter(ParentReportGroupMap.lesson_group_name == g_name).first()
-            if legacy and legacy.telegram_group_id:
-                new_lesson.telegram_group_id = legacy.telegram_group_id
 
-            db.add(new_lesson)
-            synced_count += 1
+            if existing_rows:
+                existing = existing_rows[0]
+                for dup in existing_rows[1:]:
+                    db.delete(dup)
+                existing.logika_schedule_id = schedule_id
+                existing.lesson_code = lesson_code_str
+                existing.lesson_count = lesson_count_str
+                if lesson_title:
+                    existing.lesson_title = lesson_title
+                if course_name:
+                    existing.course = course_name
+                if day_str:
+                    existing.day = day_str
+                if start_time_str:
+                    existing.start_time = start_time_str
+                if duration_min:
+                    existing.duration_minutes = duration_min
+                if absents_str is not None:
+                    existing.absents = absents_str
+                updated_count += 1
+            else:
+                new_lesson = ParentReportLesson(
+                    source_sheet="Logika Backoffice",
+                    group_name=g_name,
+                    course=course_name,
+                    lesson_title=lesson_title,
+                    lesson_code=lesson_code_str,
+                    lesson_count=lesson_count_str,
+                    day=day_str,
+                    start_time=start_time_str,
+                    duration_minutes=duration_min,
+                    logika_schedule_id=schedule_id,
+                    absents=absents_str or "",
+                    imported_at=datetime.now().isoformat(),
+                )
+                # Перевіряємо, чи є вже збережений мапінг для цієї назви
+                legacy = db.query(ParentReportGroupMap).filter(ParentReportGroupMap.lesson_group_name == g_name).first()
+                if legacy and legacy.telegram_group_id:
+                    new_lesson.telegram_group_id = legacy.telegram_group_id
 
-    # Очищуємо старі рядки з source_sheet == "Logika Backoffice", чиї групи не є активними
-    if active_group_names:
-        inactive_rows = (
-            db.query(ParentReportLesson)
-            .filter(
-                ParentReportLesson.source_sheet == "Logika Backoffice",
-                ~ParentReportLesson.group_name.in_(active_group_names)
+                db.add(new_lesson)
+                synced_count += 1
+
+        # Очищуємо старі рядки з source_sheet == "Logika Backoffice", чиї групи не є активними
+        if active_group_names:
+            inactive_rows = (
+                db.query(ParentReportLesson)
+                .filter(
+                    ParentReportLesson.source_sheet == "Logika Backoffice",
+                    ~ParentReportLesson.group_name.in_(active_group_names)
+                )
+                .all()
             )
-            .all()
-        )
-        for old_row in inactive_rows:
-            db.delete(old_row)
+            for old_row in inactive_rows:
+                db.delete(old_row)
 
-    total_active = len(groups_map)
-    settings.last_sync_at = datetime.now().isoformat()
-    settings.last_sync_count = total_active
-    settings.last_error = None
-    db.commit()
+        total_active = len(groups_map)
+        settings.last_sync_at = datetime.now().isoformat()
+        settings.last_sync_count = total_active
+        settings.last_error = None
+        db.commit()
 
-    log_event("INFO", "Logika", f"Синхронізовано {total_active} активних груп викладача (додано {synced_count}, оновлено {updated_count})")
-    return {
-        "success": True,
-        "added": synced_count,
-        "updated": updated_count,
-        "total": total_active,
-        "message": f"Синхронізовано {total_active} активних груп викладача",
-    }
+        log_event("INFO", "Logika", f"Синхронізовано {total_active} активних груп викладача (додано {synced_count}, оновлено {updated_count})")
+        return {
+            "success": True,
+            "added": synced_count,
+            "updated": updated_count,
+            "total": total_active,
+            "message": f"Синхронізовано {total_active} активних груп викладача",
+        }
+    except Exception as e:
+        db.rollback()
+        err_msg = str(e)
+        log_event("ERROR", "Logika", f"Помилка синхронізації розкладу: {err_msg}")
+        try:
+            settings.last_error = err_msg
+            db.commit()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Помилка синхронізації розкладу: {err_msg}")
+
 @router.post("/fetch-absents/{lesson_id}")
 def fetch_absents_for_lesson(lesson_id: int, db: Session = Depends(get_db)):
     lesson = db.query(ParentReportLesson).filter(ParentReportLesson.id == lesson_id).first()

@@ -1,3 +1,17 @@
+export function reportClientError(moduleName, message) {
+    try {
+        fetch(buildApiUrl('/logs/client'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                level: 'ERROR',
+                module: moduleName || 'Frontend',
+                message: String(message || '')
+            })
+        }).catch(() => {})
+    } catch (_) {}
+}
+
 export const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8001/api'
 
 export function buildApiUrl(path) {

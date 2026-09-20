@@ -4,7 +4,7 @@ import { AppSelect, TimePicker } from '../components/FormControls'
 import TelegramAuthPanel from '../components/TelegramAuthPanel'
 import { useToast } from '../components/ToastProvider'
 import { getSearchVariations } from '../utils/search'
-import { API_URL } from '../api/client'
+import { API_URL, reportClientError } from '../api/client'
 
 // URL бекенду
 
@@ -165,6 +165,7 @@ function Settings() {
 
     const logError = (text, details = '') => {
         console.error(text, details)
+        reportClientError('Settings', `${text}: ${details}`)
         setAlert({ type: 'error', text })
     }
 
@@ -219,7 +220,13 @@ function Settings() {
                     password: logikaPasswordDraft.trim(),
                 }),
             })
-            const data = await res.json()
+            let data = {}
+            try {
+                data = await res.json()
+            } catch (_) {
+                const text = await res.text().catch(() => '')
+                data = { detail: text || 'Некоректна відповідь сервера' }
+            }
             if (!res.ok) {
                 throw new Error(data.detail || 'Не вдалося увійти в Logika')
             }
@@ -239,7 +246,13 @@ function Settings() {
             const res = await fetch(`${API_URL}/logika/sync-schedule`, {
                 method: 'POST',
             })
-            const data = await res.json()
+            let data = {}
+            try {
+                data = await res.json()
+            } catch (_) {
+                const text = await res.text().catch(() => '')
+                data = { detail: text || 'Некоректна відповідь сервера' }
+            }
             if (!res.ok) {
                 throw new Error(data.detail || 'Помилка синхронізації')
             }

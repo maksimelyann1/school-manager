@@ -25,3 +25,17 @@ def clear_logs(db: Session = Depends(get_db)):
     db.query(AppLog).delete()
     db.commit()
     return {"message": "Журнал очищено"}
+
+from pydantic import BaseModel
+from logger import log_event
+
+class ClientLogPayload(BaseModel):
+    level: str = "ERROR"
+    module: str = "Frontend"
+    message: str
+
+@router.post("/client")
+def log_client_message(payload: ClientLogPayload, db: Session = Depends(get_db)):
+    """Записати помилку або подію з фронтенду в Журнал подій"""
+    log_event(payload.level.upper(), payload.module, payload.message[:1000])
+    return {"ok": True}

@@ -12,7 +12,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import AppContextMenu from './components/AppContextMenu'
 import TelegramAuthPanel from './components/TelegramAuthPanel'
 import logoUrl from './assets/logo.png'
-import { API_URL } from './api/client'
+import { API_URL, reportClientError } from './api/client'
 
 
 // Іконки SVG
@@ -108,6 +108,14 @@ function AuthGate() {
     }
 
     useEffect(() => {
+        const handleGlobalError = (event) => {
+            reportClientError('Frontend', event.message || event.error?.message || 'Помилка клієнта')
+        }
+        const handleRejection = (event) => {
+            reportClientError('Frontend', `Невідловлена помилка: ${event.reason?.message || event.reason}`)
+        }
+        window.addEventListener('error', handleGlobalError)
+        window.addEventListener('unhandledrejection', handleRejection)
         checkTelegramAuth()
     }, [])
 

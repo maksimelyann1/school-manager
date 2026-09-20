@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.6",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.6/SchoolManager_Setup.exe",
+  "changelog": "• Додано глобальний перехоплювач помилок сервера з фіксацією у Журналі подій.\n• Реалізовано передачу клієнтських помилок інтерфейсу у Журнал подій для зручної діагностики.\n• Розширено системну діагностику інформацією про стан та налаштування Logika Backoffice.\n• Покращено алгоритм зіставлення груп та синхронізації розкладу уроків Logika.\n• Оновлено інтерфейс сторінки Налаштувань.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.6/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.6/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}
