@@ -71,6 +71,7 @@ function Settings() {
     const [focusHighlight, setFocusHighlight] = useState(null)
     const telegramCardRef = useRef(null)
     const groupsCardRef = useRef(null)
+    const logikaCardRef = useRef(null)
     
     // Резервне копіювання
     const [isRestoring, setIsRestoring] = useState(false)
@@ -98,6 +99,15 @@ function Settings() {
     const [googleApiKeyVisible, setGoogleApiKeyVisible] = useState(false)
     const [googleApiKeyRevealLoading, setGoogleApiKeyRevealLoading] = useState(false)
     const [isGoogleAiSaving, setIsGoogleAiSaving] = useState(false)
+
+    // Logika Backoffice
+    const [logikaSettings, setLogikaSettings] = useState(null)
+    const [logikaLoginDraft, setLogikaLoginDraft] = useState('')
+    const [logikaPasswordDraft, setLogikaPasswordDraft] = useState('')
+    const [logikaPasswordVisible, setLogikaPasswordVisible] = useState(false)
+    const [isLogikaLoggingIn, setIsLogikaLoggingIn] = useState(false)
+    const [isLogikaSyncing, setIsLogikaSyncing] = useState(false)
+    const [isLogikaDisconnecting, setIsLogikaDisconnecting] = useState(false)
 
     // Стан для створення категорії
     const [newCategoryName, setNewCategoryName] = useState('')
@@ -175,7 +185,105 @@ function Settings() {
 
     useEffect(() => {
         fetchData()
+        loadLogikaSettings()
     }, [])
+
+    const loadLogikaSettings = async () => {
+        try {
+            const res = await fetch(`${API_URL}/logika/settings`)
+            if (res.ok) {
+                const data = await res.json()
+                setLogikaSettings(data)
+                if (data.login) {
+                    setLogikaLoginDraft(data.login)
+                }
+            }
+        } catch (err) {
+            console.error('Помилка завантаження Logika:', err)
+        }
+    }
+
+    const handleLogikaLogin = async (e) => {
+        if (e) e.preventDefault()
+        if (!logikaLoginDraft.trim() || !logikaPasswordDraft.trim()) {
+            setAlert({ type: 'warning', text: 'Введіть логін та пароль Logika' })
+            return
+        }
+        setIsLogikaLoggingIn(true)
+        try {
+            const res = await fetch(`${API_URL}/logika/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    login: logikaLoginDraft.trim(),
+                    password: logikaPasswordDraft.trim(),
+                }),
+            })
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.detail || 'Не вдалося увійти в Logika')
+            }
+            setAlert({ type: 'success', text: data.message || 'Успішно підключено до Logika' })
+            setLogikaPasswordDraft('')
+            await loadLogikaSettings()
+        } catch (err) {
+            setAlert({ type: 'error', text: err.message || 'Помилка авторизації Logika' })
+        } finally {
+            setIsLogikaLoggingIn(false)
+        }
+    }
+
+    const handleLogikaSync = async () => {
+        setIsLogikaSyncing(true)
+        try {
+            const res = await fetch(`${API_URL}/logika/sync-schedule`, {
+                method: 'POST',
+            })
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.detail || 'Помилка синхронізації')
+            }
+            setAlert({ type: 'success', text: data.message || 'Розклад Logika успішно оновлено' })
+            await loadLogikaSettings()
+        } catch (err) {
+            setAlert({ type: 'error', text: err.message || 'Помилка синхронізації' })
+        } finally {
+            setIsLogikaSyncing(false)
+        }
+    }
+
+    const handleLogikaDisconnect = async () => {
+        if (!window.confirm('Ви впевнені, що хочете вийти з акаунта Logika?')) return
+        setIsLogikaDisconnecting(true)
+        try {
+            const res = await fetch(`${API_URL}/logika/disconnect`, { method: 'POST' })
+            if (res.ok) {
+                setAlert({ type: 'info', text: 'Акаунт Logika відключено' })
+                setLogikaPasswordDraft('')
+                await loadLogikaSettings()
+            }
+        } catch (err) {
+            setAlert({ type: 'error', text: 'Помилка відключення' })
+        } finally {
+            setIsLogikaDisconnecting(false)
+        }
+    }
+
+    const handleLogikaToggle = async (field, value) => {
+        try {
+            const res = await fetch(`${API_URL}/logika/update-settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [field]: value }),
+            })
+            if (res.ok) {
+                setLogikaSettings((prev) => ({ ...prev, [field]: value }))
+                setAlert({ type: 'success', text: 'Налаштування збережено' })
+            }
+        } catch (err) {
+            setAlert({ type: 'error', text: 'Не вдалося оновити налаштування' })
+        }
+    }
 
     const fetchData = async () => {
         setLoading(true)
@@ -650,11 +758,17 @@ function Settings() {
             const data = await response.json()
 
             if (response.ok) {
-                if (data.added_count > 0) {
-                    setAlert({ type: 'success', text: `Синхронізація успішна! Знайдено нових груп: ${data.added_count}` })
+                const added = data.added_count || 0
+                const updated = data.updated_count || 0
+                if (added > 0 || updated > 0) {
+                    const parts = []
+                    if (added > 0) parts.push(`нових: ${added}`)
+                    if (updated > 0) parts.push(`оновлено назв: ${updated}`)
+                    setAlert({ type: 'success', text: `Синхронізація успішна! (${parts.join(', ')})` })
                     fetchData()
                 } else {
-                    setAlert({ type: 'info', text: 'Синхронізація успішна. Нових груп не знайдено.' })
+                    setAlert({ type: 'info', text: 'Усі групи та назви актуальні. Змін не виявлено.' })
+                    fetchData()
                 }
             } else {
                 setAlert({ type: 'error', text: data.detail || 'Помилка синхронізації' })
@@ -947,13 +1061,13 @@ function Settings() {
     useEffect(() => {
         const params = new URLSearchParams(location.search)
         const focus = params.get('focus')
-        if (focus !== 'telegram' && focus !== 'groups') return undefined
+        if (focus !== 'telegram' && focus !== 'groups' && focus !== 'logika') return undefined
 
         if (focus === 'groups') {
             setIsGroupsExpanded(true)
         }
 
-        const targetRef = focus === 'telegram' ? telegramCardRef : groupsCardRef
+        const targetRef = focus === 'telegram' ? telegramCardRef : focus === 'logika' ? logikaCardRef : groupsCardRef
         const scrollTimer = setTimeout(() => {
             targetRef.current?.scrollIntoView({
                 behavior: 'smooth',
@@ -1285,6 +1399,224 @@ function Settings() {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <div ref={logikaCardRef} className={`card ${focusHighlight === 'logika' ? 'highlight-focus' : ''}`} style={{ marginBottom: '24px' }}>
+                <div className="card-header" style={{ marginBottom: '16px' }}>
+                    <div>
+                        <h3 className="card-title" style={{ marginBottom: '8px' }}>🎓 Logika Backoffice</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
+                            Вхід під акаунтом викладача для автоматичного отримання розкладу уроків, тем та списку присутніх/відсутніх учнів після уроку.
+                        </p>
+                    </div>
+                </div>
+
+                {logikaSettings?.is_configured ? (
+                    <div>
+                        <div style={{
+                            background: 'rgba(34, 197, 94, 0.08)',
+                            border: '1px solid rgba(34, 197, 94, 0.25)',
+                            borderRadius: '8px',
+                            padding: '14px 16px',
+                            marginBottom: '16px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '12px'
+                        }}>
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                    <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success, #22c55e)' }} />
+                                    <strong style={{ fontSize: '1rem' }}>
+                                        {logikaSettings.teacher_name ? `Викладач: ${logikaSettings.teacher_name}` : 'Підключено'}
+                                    </strong>
+                                </div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                    Логін: <strong>{logikaSettings.login}</strong>
+                                    {logikaSettings.last_sync_at ? (
+                                        <span> • Останнє оновлення: {new Date(logikaSettings.last_sync_at).toLocaleString('uk-UA')} ({logikaSettings.last_sync_count} уроків)</span>
+                                    ) : null}
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary btn-sm"
+                                    onClick={handleLogikaSync}
+                                    disabled={isLogikaSyncing}
+                                >
+                                    {isLogikaSyncing ? 'Синхронізація...' : '🔄 Синхронізувати розклад'}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={handleLogikaDisconnect}
+                                    disabled={isLogikaDisconnecting}
+                                >
+                                    {isLogikaDisconnecting ? 'Вихід...' : 'Вийти'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', paddingBottom: '14px', borderBottom: '1px solid var(--border)' }}>
+                                <div style={{ flex: '1 1 280px' }}>
+                                    <div style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: '0.95rem', marginBottom: '4px' }}>
+                                        Автоматично підтягувати відсутніх учнів
+                                    </div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                                        Після закінчення уроку зчитує відмітки з журналу Logika та вставляє імена відсутніх у звіт
+                                    </div>
+                                </div>
+                                <label
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        cursor: 'pointer',
+                                        userSelect: 'none',
+                                    }}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={!!logikaSettings.auto_fetch_absents}
+                                        onChange={(e) => handleLogikaToggle('auto_fetch_absents', e.target.checked)}
+                                        style={{ display: 'none' }}
+                                    />
+                                    <span style={{
+                                        position: 'relative',
+                                        width: '48px',
+                                        height: '26px',
+                                        borderRadius: '999px',
+                                        background: logikaSettings.auto_fetch_absents ? 'var(--success, #22c55e)' : 'var(--border)',
+                                        transition: 'background 0.2s ease',
+                                        flex: '0 0 auto'
+                                    }}>
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: '3px',
+                                            left: logikaSettings.auto_fetch_absents ? '25px' : '3px',
+                                            width: '20px',
+                                            height: '20px',
+                                            borderRadius: '50%',
+                                            background: '#fff',
+                                            boxShadow: 'var(--shadow-sm)',
+                                            transition: 'left 0.2s ease'
+                                        }} />
+                                    </span>
+                                    <span style={{ fontWeight: 600, minWidth: '70px' }}>
+                                        {logikaSettings.auto_fetch_absents ? 'Увімкнено' : 'Вимкнено'}
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', paddingTop: '14px' }}>
+                                <div style={{ flex: '1 1 280px' }}>
+                                    <div style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: '0.95rem', marginBottom: '4px' }}>
+                                        Автоматично синхронізувати розклад при старті програми
+                                    </div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                                        При кожному запуску School Manager актуалізує список груп, тем і розклад з Logika
+                                    </div>
+                                </div>
+                                <label
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        cursor: 'pointer',
+                                        userSelect: 'none',
+                                    }}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={!!logikaSettings.auto_sync_enabled}
+                                        onChange={(e) => handleLogikaToggle('auto_sync_enabled', e.target.checked)}
+                                        style={{ display: 'none' }}
+                                    />
+                                    <span style={{
+                                        position: 'relative',
+                                        width: '48px',
+                                        height: '26px',
+                                        borderRadius: '999px',
+                                        background: logikaSettings.auto_sync_enabled ? 'var(--success, #22c55e)' : 'var(--border)',
+                                        transition: 'background 0.2s ease',
+                                        flex: '0 0 auto'
+                                    }}>
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: '3px',
+                                            left: logikaSettings.auto_sync_enabled ? '25px' : '3px',
+                                            width: '20px',
+                                            height: '20px',
+                                            borderRadius: '50%',
+                                            background: '#fff',
+                                            boxShadow: 'var(--shadow-sm)',
+                                            transition: 'left 0.2s ease'
+                                        }} />
+                                    </span>
+                                    <span style={{ fontWeight: 600, minWidth: '70px' }}>
+                                        {logikaSettings.auto_sync_enabled ? 'Увімкнено' : 'Вимкнено'}
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <form onSubmit={handleLogikaLogin} style={{ maxWidth: '500px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '16px' }}>
+                            <label className="form-group" style={{ margin: 0 }}>
+                                <span className="form-label">Логін Logika</span>
+                                <input
+                                    className="form-input"
+                                    type="text"
+                                    value={logikaLoginDraft}
+                                    onChange={(e) => setLogikaLoginDraft(e.target.value)}
+                                    placeholder="Введіть ваш логін (напр. miablonskyi)"
+                                    disabled={isLogikaLoggingIn}
+                                    required
+                                />
+                            </label>
+
+                            <label className="form-group" style={{ margin: 0 }}>
+                                <span className="form-label">Пароль Logika</span>
+                                <div className="parents-secret-input">
+                                    <input
+                                        className="form-input"
+                                        type={logikaPasswordVisible ? 'text' : 'password'}
+                                        value={logikaPasswordDraft}
+                                        onChange={(e) => setLogikaPasswordDraft(e.target.value)}
+                                        placeholder="Введіть ваш пароль"
+                                        disabled={isLogikaLoggingIn}
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        className="parents-secret-toggle"
+                                        onClick={() => setLogikaPasswordVisible(!logikaPasswordVisible)}
+                                        aria-label="Перемкнути видимість пароля"
+                                    >
+                                        <EyeIcon crossed={logikaPasswordVisible} />
+                                    </button>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <button
+                                type="submit"
+                                className="btn btn-primary"
+                                disabled={isLogikaLoggingIn}
+                            >
+                                {isLogikaLoggingIn ? 'Вхід у Logika...' : 'Увійти в Logika'}
+                            </button>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                Авторизація працює локально на вашому комп'ютері
+                            </span>
+                        </div>
+                    </form>
+                )}
             </div>
 
             <div className="card">

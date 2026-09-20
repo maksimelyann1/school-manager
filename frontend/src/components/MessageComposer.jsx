@@ -108,10 +108,53 @@ function MessageComposer({
 
     return (
         <div className={`message-composer ${className}`}>
-            {(label || allowMagic || allowEmoji || allowStickers || allowFormatting || allowFiles || toolbarEnd) && (
+            {(label || allowFiles) && (
                 <div className="message-composer-head">
                     {label && <label className="form-label message-composer-label">{label}</label>}
-                    <div className="message-tools-row">
+                    {allowFiles && (
+                        <div className="composer-toolbar-files" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm composer-file-btn"
+                                onClick={() => activeFileInputRef.current?.click()}
+                                disabled={disabled}
+                            >
+                                + Додати файли
+                            </button>
+                            {pasteFromClipboard && (
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm composer-file-btn"
+                                    onClick={handlePasteFromClipboard}
+                                    disabled={disabled}
+                                >
+                                    Вставити з буфера
+                                </button>
+                            )}
+                            <input
+                                ref={activeFileInputRef}
+                                type="file"
+                                multiple
+                                style={{ display: 'none' }}
+                                onChange={handleFileSelect}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {(allowFormatting || allowMagic || allowEmoji || allowStickers || toolbarEnd) && (
+                <div className="message-composer-toolbar">
+                    {allowFormatting && (
+                        <div className="composer-toolbar-format">
+                            <TelegramTextToolbar
+                                textareaRef={activeEditorRef}
+                                value={value}
+                                setValue={updateValue}
+                            />
+                        </div>
+                    )}
+                    <div className="message-composer-actions">
                         {allowMagic && (
                             <MagicTextButton
                                 value={value}
@@ -132,7 +175,7 @@ function MessageComposer({
                                     }}
                                     title="Додати смайлик"
                                     type="button"
-                                    style={{ fontSize: '1.3rem', opacity: 1 }}
+                                    style={{ fontSize: '1.25rem', opacity: 1, padding: '2px 4px' }}
                                 >
                                     😊
                                 </button>
@@ -156,7 +199,7 @@ function MessageComposer({
                                     }}
                                     title="Додати наліпку"
                                     type="button"
-                                    style={{ opacity: 1 }}
+                                    style={{ opacity: 1, padding: '2px 4px' }}
                                 >
                                     <StickerIcon />
                                 </button>
@@ -168,42 +211,6 @@ function MessageComposer({
                                     />
                                 )}
                             </div>
-                        )}
-                        {allowFormatting && (
-                            <TelegramTextToolbar
-                                textareaRef={activeEditorRef}
-                                value={value}
-                                setValue={updateValue}
-                            />
-                        )}
-                        {allowFiles && (
-                            <>
-                                <button
-                                    type="button"
-                                    className="btn btn-secondary btn-sm"
-                                    onClick={() => activeFileInputRef.current?.click()}
-                                    disabled={disabled}
-                                >
-                                    + Додати файли
-                                </button>
-                                {pasteFromClipboard && (
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary btn-sm"
-                                        onClick={handlePasteFromClipboard}
-                                        disabled={disabled}
-                                    >
-                                        Вставити з буфера
-                                    </button>
-                                )}
-                                <input
-                                    ref={activeFileInputRef}
-                                    type="file"
-                                    multiple
-                                    style={{ display: 'none' }}
-                                    onChange={handleFileSelect}
-                                />
-                            </>
                         )}
                         {toolbarEnd}
                     </div>

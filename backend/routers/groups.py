@@ -20,6 +20,7 @@ async def sync_telegram_groups(db: Session) -> dict:
 
     client = pyrogram_manager.client
     added_count = 0
+    updated_count = 0
 
     try:
         # Отримуємо всі діалоги (групи, канали, чати)
@@ -31,21 +32,26 @@ async def sync_telegram_groups(db: Session) -> dict:
                 continue
 
             chat_id = str(chat.id)
-            title = chat.title or "Без назви"
+            title = (chat.title or "Без назви").strip()
 
-            # Перевіряємо чи є вже така група в базі
+            # Перевіряємо чи є вже така група в базі за telegram_id
             existing = db.query(Group).filter(Group.telegram_id == chat_id).first()
             if not existing:
                 new_group = Group(name=title, telegram_id=chat_id)
                 db.add(new_group)
                 added_count += 1
                 print(f"[Sync] ➕ Додано: {title} ({chat_id})")
+            elif existing.name != title:
+                old_name = existing.name
+                existing.name = title
+                updated_count += 1
+                print(f"[Sync] ✏️ Оновлено назву: '{old_name}' -> '{title}' ({chat_id})")
 
-        if added_count > 0:
+        if added_count > 0 or updated_count > 0:
             db.commit()
 
-        print(f"[Sync] Синхронізація завершена: додано {added_count} нових груп/каналів")
-        return {"message": "Синхронізація успішна", "added_count": added_count}
+        print(f"[Sync] Синхронізація завершена: додано {added_count}, оновлено {updated_count}")
+        return {"message": "Синхронізація успішна", "added_count": added_count, "updated_count": updated_count}
 
     except FloodWait as e:
         raise HTTPException(status_code=429, detail=f"Telegram просить зачекати {e.value}с")

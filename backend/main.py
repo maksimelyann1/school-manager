@@ -8,8 +8,8 @@ from fastapi.exceptions import HTTPException
 import os
 
 from database import engine, Base, SessionLocal, ensure_schema_migrations
-from models import Group, BotSettings, AutoMessage, Template, Category
-from routers import groups, settings, messages, auto_messages, templates, categories, logs, dashboard, files, stickers, parents_report, ai
+from models import Group, BotSettings, AutoMessage, Template, Category, LogikaSettings, ParentReportLesson
+from routers import groups, settings, messages, auto_messages, templates, categories, logs, dashboard, files, stickers, parents_report, ai, logika
 from routers import system
 from pyrogram_client import pyrogram_manager
 from telegram_credentials import get_effective_credentials, stored_credentials_match_default
@@ -69,12 +69,50 @@ async def lifespan(app: FastAPI):
                     # Плануємо відкладені повідомлення через Telegram
                     await auto_messages.schedule_telegram_messages()
                     stickers.schedule_sticker_cache_warmup(reason="startup")
+
+                    # Автоматична синхронізація груп Telegram при старті (оновлює назви та додає нові)
+                    async def _bg_startup_sync_groups():
+                        import asyncio
+                        await asyncio.sleep(2)  # Невелика пауза після старту
+                        sync_db = SessionLocal()
+                        try:
+                            from logger import log_event
+                            res = await groups.sync_telegram_groups(sync_db)
+                            if res.get('added_count', 0) > 0 or res.get('updated_count', 0) > 0:
+                                log_event("INFO", "Groups", f"Автосинхронізація груп Telegram: додано {res.get('added_count', 0)}, оновлено назв {res.get('updated_count', 0)}")
+                        except Exception as sync_err:
+                            print(f"[Main] Помилка фонової синхронізації Telegram груп: {sync_err}")
+                        finally:
+                            sync_db.close()
+
+                    import asyncio
+                    asyncio.create_task(_bg_startup_sync_groups())
                 else:
                     print("[Main] Pyrogram сесія не знайдена або недійсна. Потрібна авторизація.")
             except Exception as e:
                 print(f"[Main] Помилка підключення Pyrogram: {e}")
         else:
             print("[Main] API credentials не налаштовані. Перейдіть в Налаштування.")
+
+        # Автоматична синхронізація розкладу Logika при старті, якщо увімкнено
+        try:
+            l_settings = db.query(LogikaSettings).first()
+            if l_settings and l_settings.login and l_settings.password and l_settings.auto_sync_enabled:
+                import asyncio
+                from routers.logika import sync_schedule
+
+                def _bg_sync():
+                    sync_db = SessionLocal()
+                    try:
+                        sync_schedule(db=sync_db)
+                    except Exception as err:
+                        print(f"[Main] Помилка авто-синхронізації Logika: {err}")
+                    finally:
+                        sync_db.close()
+
+                asyncio.create_task(asyncio.to_thread(_bg_sync))
+        except Exception as e:
+            print(f"[Main] Помилка перевірки автосинхронізації Logika: {e}")
     finally:
         db.close()
     
@@ -99,7 +137,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.4.0",
+    version="2.5.0",
     lifespan=lifespan
 )
 
@@ -138,6 +176,7 @@ app.include_router(files.router, prefix="/api")
 app.include_router(stickers.router, prefix="/api")
 app.include_router(parents_report.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(logika.router, prefix="/api")
 
 # Роздача статичних файлів (Frontend)
 import sys
@@ -146,7 +185,8 @@ if getattr(sys, 'frozen', False):
 else:
     base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-FRONTEND_DIST = os.path.join(base_path, "frontend", "dist")
+dist_new = os.path.join(base_path, "frontend", "dist-new")
+FRONTEND_DIST = dist_new if os.path.isdir(dist_new) and os.path.isfile(os.path.join(dist_new, "index.html")) else os.path.join(base_path, "frontend", "dist")
 
 @app.get("/health")
 def health_check():
@@ -191,7 +231,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.4 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.5 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }

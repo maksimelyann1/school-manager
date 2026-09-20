@@ -5,8 +5,15 @@ const ToastContext = createContext(null)
 let nextToastId = 1
 
 function normalizeToast(input, fallbackText) {
+    const standardTypes = ['success', 'error', 'warning', 'info']
     if (typeof input === 'string') {
-        return { type: input, text: fallbackText || '' }
+        if (typeof fallbackText === 'string' && standardTypes.includes(fallbackText.toLowerCase())) {
+            return { type: fallbackText.toLowerCase(), text: input }
+        }
+        if (standardTypes.includes(input.toLowerCase())) {
+            return { type: input.toLowerCase(), text: fallbackText || '' }
+        }
+        return { type: 'info', text: input }
     }
     return {
         type: input?.type || 'info',

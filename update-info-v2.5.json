@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.5",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.5/SchoolManager_Setup.exe",
+  "changelog": "• Інтеграція з Logika Backoffice: автоматична синхронізація розкладу, груп та уроків.\n• Керування та статус синхронізації Logika в Налаштуваннях та на Головній.\n• Оновлено звіт батькам з урахуванням розкладу Logika.\n• Автоматична фонова синхронізація груп Telegram при запуску програми.\n• Загальні оптимізації та покращення стабільності роботи інтерфейсу.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.5/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.5/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

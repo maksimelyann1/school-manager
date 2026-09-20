@@ -352,7 +352,7 @@ function Templates() {
                             onOpenFileError={(text) => setAlert({ type: 'warning', text })}
                         />
 
-                        <div className="btn-group">
+                        <div className="btn-group" style={{ justifyContent: 'center', marginTop: '14px', gap: '10px' }}>
                             <button
                                 className="btn btn-primary"
                                 onClick={saveTemplate}

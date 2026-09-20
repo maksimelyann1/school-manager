@@ -7,12 +7,17 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metada
 def data_path(*parts):
     return os.path.join(*parts)
 
+frontend_source = (
+    data_path("frontend", "dist-new")
+    if os.path.isfile(data_path("frontend", "dist-new", "index.html"))
+    else data_path("frontend", "dist")
+)
 
 datas = [
     ("logo.png", "."),
     (data_path("backend", "*.py"), "backend"),
     (data_path("backend", "routers", "*.py"), data_path("backend", "routers")),
-    (data_path("frontend", "dist"), data_path("frontend", "dist")),
+    (frontend_source, data_path("frontend", "dist")),
 ]
 binaries = []
 hiddenimports = [
@@ -38,6 +43,7 @@ for package_name in (
     "imageio_ffmpeg",
     "webview",
     "pystray",
+    "selenium",
 ):
     package_datas, package_binaries, package_hiddenimports = collect_all(package_name)
     datas += package_datas
@@ -111,8 +117,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "School Manager",
         "CFBundleDisplayName": "School Manager",
-        "CFBundleShortVersionString": "2.4",
-        "CFBundleVersion": "2.4.0",
+        "CFBundleShortVersionString": "2.5",
+        "CFBundleVersion": "2.5.0",
         "NSHighResolutionCapable": True,
     },
 )

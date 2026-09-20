@@ -132,7 +132,7 @@ class ParentReportSettings(Base):
     google_ai_model = Column(String, nullable=False, default="gemini-2.5-flash")
     prompt_template = Column(Text, nullable=False, default="")
     auto_reports_enabled = Column(Integer, nullable=False, default=0)
-    report_delay_minutes = Column(Integer, nullable=False, default=0)
+    report_delay_minutes = Column(Integer, nullable=False, default=10)
     report_notifications_enabled = Column(Integer, nullable=False, default=1)
     report_notification_delay_minutes = Column(Integer, nullable=False, default=0)
     absent_followup_enabled = Column(Integer, nullable=False, default=1)
@@ -173,6 +173,7 @@ class ParentReportLesson(Base):
     postponed_created_at = Column(String, nullable=True)
     raw_data = Column(Text, nullable=True)
     imported_at = Column(String, nullable=True)
+    logika_schedule_id = Column(Integer, nullable=True, index=True)
     telegram_group = relationship("Group")
 
 
@@ -250,3 +251,24 @@ class ParentReportNotification(Base):
     lesson_group_name = Column(String, nullable=False, index=True)
     lesson_date = Column(String, nullable=False, index=True)
     notified_at = Column(String, nullable=False)
+
+
+class LogikaSettings(Base):
+    """Налаштування інтеграції з Logika Backoffice"""
+    __tablename__ = "logika_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    login = Column(String, nullable=True)
+    password = Column(String, nullable=True)
+    access_token = Column(Text, nullable=True)
+    refresh_token = Column(Text, nullable=True)
+    xsrf_token = Column(Text, nullable=True)
+    token_expires_at = Column(String, nullable=True)
+    teacher_name = Column(String, nullable=True)
+    teacher_id = Column(Integer, nullable=True)
+    auto_sync_enabled = Column(Integer, default=1, nullable=False)
+    auto_fetch_absents = Column(Integer, default=1, nullable=False)
+    last_sync_at = Column(String, nullable=True)
+    last_sync_count = Column(Integer, default=0, nullable=False)
+    last_error = Column(Text, nullable=True)
+    updated_at = Column(String, nullable=True)

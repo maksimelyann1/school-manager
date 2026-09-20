@@ -671,12 +671,19 @@ async def send_auto_message_pyrogram(auto_message_id: int):
         log_event("INFO", "AutoMsg", f"Час відправки настав для '{group.name}' (msg_id={auto_message_id}, відправлено: {auto_msg.sent_count})")
 
         if auto_msg.repeat_count > 0 and auto_msg.sent_count >= auto_msg.repeat_count:
-            auto_msg.is_active = 0
             job_id = _local_send_job_id(auto_message_id)
             if scheduler.get_job(job_id):
                 scheduler.remove_job(job_id)
             _clear_telegram_plan_job(auto_message_id)
-            log_event("INFO", "AutoMsg", f"Ліміт досягнуто ({auto_msg.repeat_count}), деактивовано msg_id={auto_message_id}")
+            is_followup = getattr(auto_msg, "source", "") in ("parent_report_followup", "parent_report_absent_followup")
+            if is_followup:
+                db.delete(auto_msg)
+                db.commit()
+                log_event("INFO", "AutoMsg", f"Одноразове нагадування після звіту відправлено та автоматично видалено: '{group.name}'")
+                return
+            else:
+                auto_msg.is_active = 0
+                log_event("INFO", "AutoMsg", f"Ліміт досягнуто ({auto_msg.repeat_count}), деактивовано msg_id={auto_message_id}")
         else:
             try:
                 next_target = _next_target_datetime(auto_msg)

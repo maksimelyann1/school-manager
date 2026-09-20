@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
+
+frontend_dir = os.path.join('frontend', 'dist-new') if os.path.isfile(os.path.join('frontend', 'dist-new', 'index.html')) else os.path.join('frontend', 'dist')
 
 datas = [
     ('logo.png', '.'),
     ('backend\\*.py', 'backend'),
     ('backend\\routers\\*.py', 'backend\\routers'),
-    ('frontend\\dist', 'frontend\\dist'),
+    (frontend_dir, os.path.join('frontend', 'dist')),
 ]
 binaries = []
 hiddenimports = ['main', 'pystray._win32', 'tgcrypto']
@@ -29,6 +32,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('winotify')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 hiddenimports += collect_submodules('winotify')
+tmp_ret = collect_all('selenium')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(

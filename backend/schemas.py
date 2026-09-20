@@ -220,8 +220,42 @@ class UpcomingMessageResponse(BaseModel):
     target_datetime: str  # ISO format string
     time_left: str  # Наприклад "через 2 години" або "сьогодні о 18:00"
 
+class PendingReportItem(BaseModel):
+    id: int
+    group_name: str
+    telegram_group_name: Optional[str] = ""
+    mapping_ready: bool
+    lesson_title: Optional[str] = ""
+    lesson_code: Optional[str] = ""
+    lesson_count: Optional[str] = ""
+    lesson_date: Optional[str] = ""
+    start_time: Optional[str] = ""
+    absents: Optional[str] = ""
+
+class NextAutoReportItem(BaseModel):
+    lesson_id: int
+    group_name: str
+    telegram_group_name: Optional[str] = ""
+    mapping_ready: bool
+    lesson_title: Optional[str] = ""
+    lesson_code: Optional[str] = ""
+    lesson_start: str
+    report_time: str
+    time_left: str
+
+class ReportsDashboardInfo(BaseModel):
+    auto_reports_enabled: bool
+    report_delay_minutes: int
+    pending_count: int
+    pending_reports: List[PendingReportItem]
+    next_auto_report: Optional[NextAutoReportItem] = None
+
 class DashboardStatsResponse(BaseModel):
     is_connected: bool
     total_groups: int
     today_scheduled_count: int
     upcoming_messages: List[UpcomingMessageResponse]
+    logika_connected: bool = False
+    logika_teacher_name: Optional[str] = None
+    logika_login: Optional[str] = None
+    reports_info: Optional[ReportsDashboardInfo] = None

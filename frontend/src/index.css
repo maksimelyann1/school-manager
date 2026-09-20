@@ -207,24 +207,40 @@ button {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 32px;
+  padding: 18px 24px;
   overflow-y: auto;
   scrollbar-gutter: stable;
   scrollbar-color: #475569 #0f172a;
 }
 
 .page-header {
-  margin-bottom: 32px;
+  margin-bottom: 18px;
 }
 
 .page-header h2 {
-  font-size: 1.75rem;
+  font-size: 1.35rem;
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: 3px;
+  line-height: 1.25;
 }
 
 .page-header p {
+  font-size: 0.84rem;
   color: var(--text-secondary);
+  margin: 0;
+}
+
+.page-header .btn {
+  padding: 6px 14px;
+  font-size: 0.84rem;
+  height: 32px;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+}
+
+.page-header .btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Картки */
@@ -331,7 +347,7 @@ button {
 
 /* Форми */
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 
 .form-label {
@@ -1279,13 +1295,31 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 12px 24px;
+  padding: 7px 18px;
+  min-height: 34px;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 1rem;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.modal .btn-group {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.modal .btn-group .btn,
+.modal-actions .btn,
+.modal .btn {
+  padding: 6px 16px;
+  font-size: 0.86rem;
+  min-height: 32px;
+  height: 32px;
 }
 
 .btn-primary {
@@ -1489,18 +1523,19 @@ button {
 
 .parents-report-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
 }
 
 .parents-stat {
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-height: 104px;
+  gap: 10px;
+  min-height: unset;
   margin-bottom: 0;
-  padding: 22px 24px;
-  border-left: 4px solid var(--primary);
+  padding: 10px 14px;
+  border-left: 3px solid var(--primary);
+  border-radius: 10px;
 }
 
 .parents-stat-primary {
@@ -1524,11 +1559,16 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
   color: var(--primary);
   background: rgba(99, 102, 241, 0.1);
+}
+
+.parents-stat-icon svg {
+  width: 20px;
+  height: 20px;
 }
 
 .parents-stat-success .parents-stat-icon {
@@ -1549,17 +1589,18 @@ button {
 .parents-stat span {
   display: block;
   color: var(--text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.35;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  margin-bottom: 2px;
 }
 
 .parents-stat strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 0;
   color: var(--text-primary);
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
 .parents-tabs {
@@ -3277,9 +3318,9 @@ button {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 18px 22px;
   width: 100%;
-  max-width: 500px;
+  max-width: 580px;
   max-height: 90vh;
   overflow-y: auto;
 }
@@ -3288,7 +3329,7 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .modal-title {
@@ -5030,7 +5071,9 @@ button {
 }
 
 .magic-text-btn {
-  padding: 0 13px 0 14px;
+  min-height: 28px !important;
+  padding: 0 10px 0 11px !important;
+  font-size: 0.82rem !important;
   background:
     radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.32), transparent 24%),
     radial-gradient(circle at 82% 72%, rgba(34, 211, 238, 0.34), transparent 28%),
@@ -5239,7 +5282,7 @@ button {
 .message-composer {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .message-composer-head {
@@ -5247,11 +5290,52 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  flex-wrap: wrap;
+  margin-bottom: 2px;
 }
 
 .message-composer-label {
   margin: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.message-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.message-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.composer-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.composer-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.composer-file-btn {
+  padding: 4px 10px !important;
+  font-size: 0.8rem !important;
+  height: 28px !important;
+  border-radius: var(--radius-sm) !important;
+  display: inline-flex !important;
+  align-items: center !important;
 }
 
 .message-composer-dropzone {

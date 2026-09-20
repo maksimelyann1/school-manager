@@ -41,7 +41,7 @@ router = APIRouter(prefix="/parents-report", tags=["Звіт батькам"])
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 DEFAULT_MODEL = "gemini-2.5-flash"
-DEFAULT_REPORT_DELAY_MINUTES = 0
+DEFAULT_REPORT_DELAY_MINUTES = 10
 DEFAULT_REPORT_NOTIFICATION_DELAY_MINUTES = 0
 DEFAULT_DURATION_MINUTES = 90
 DEFAULT_ABSENT_FOLLOWUP_DELAY_MINUTES = 5
@@ -1760,12 +1760,18 @@ def _create_report_followup_auto_message(
     if not getattr(settings, "absent_followup_enabled", 1):
         return None
 
-    existing = db.query(AutoMessage).filter(
-        AutoMessage.parent_report_run_id == report_run.id,
+    # Очищуємо старі попередні нагадування для цього ж уроку, щоб не створювати сміття та дублікатів
+    old_pending = db.query(AutoMessage).filter(
+        AutoMessage.parent_report_lesson_id == lesson.id,
         AutoMessage.source.in_(["parent_report_absent_followup", "parent_report_followup"]),
-    ).first()
-    if existing:
-        return existing
+    ).all()
+    for old in old_pending:
+        auto_messages._clear_telegram_plan_job(old.id)
+        job_id = auto_messages._local_send_job_id(old.id)
+        if auto_messages.scheduler.get_job(job_id):
+            auto_messages.scheduler.remove_job(job_id)
+        db.delete(old)
+    db.flush()
 
     followup_type = "absent_followup" if clean_absents else "regular_followup"
     default_template = (
@@ -2054,6 +2060,51 @@ async def process_auto_reports():
             lesson = db.query(ParentReportLesson).filter(ParentReportLesson.id == item["id"]).first()
             if not lesson:
                 continue
+
+            # Автоматично перевіряємо актуальну тему та підтягуємо відсутніх з Logika перед автозвітом
+            if getattr(lesson, "logika_schedule_id", None) or getattr(lesson, "source_sheet", None) == "Logika Backoffice":
+                try:
+                    from models import LogikaSettings
+                    from routers.logika import get_authenticated_client, _extract_lesson_code
+                    l_settings = db.query(LogikaSettings).first()
+                    if l_settings and getattr(l_settings, "auto_fetch_absents", 1):
+                        l_client = get_authenticated_client(l_settings, db)
+                        today_date = datetime.now(KYIV_TZ).date()
+                        fresh_sched = l_client.get_schedule(
+                            page=0, size=50,
+                            teacher_id=l_settings.teacher_id,
+                            status="ACTIVE",
+                            is_start_day_now=True,
+                        )
+                        today_item = None
+                        for s_item in fresh_sched:
+                            if s_item.get("group", {}).get("value") == lesson.group_name and s_item.get("start"):
+                                try:
+                                    s_date = datetime.fromisoformat(s_item["start"]).date()
+                                    if s_date == today_date:
+                                        today_item = s_item
+                                        break
+                                except Exception:
+                                    pass
+                        target_sched_id = lesson.logika_schedule_id
+                        if today_item:
+                            target_sched_id = today_item.get("id", target_sched_id)
+                            new_title = (today_item.get("lesson", {}).get("value") or "").strip()
+                            if new_title and new_title != lesson.lesson_title:
+                                old_code = lesson.lesson_code
+                                lesson.lesson_title = new_title
+                                lesson.lesson_code = _extract_lesson_code(new_title)
+                                lesson.logika_schedule_id = target_sched_id
+                                log_event("INFO", "Logika", f"Зміна теми для '{lesson.group_name}': було {old_code} -> стало {lesson.lesson_code}")
+                        if target_sched_id:
+                            abs_list = l_client.get_absent_students(target_sched_id)
+                            if abs_list:
+                                lesson.absents = ", ".join(abs_list)
+                            log_event("INFO", "Logika", f"Підтягнуто відсутніх для '{lesson.group_name}': {lesson.absents or 'усі присутні'}")
+                        db.commit()
+                except Exception as l_err:
+                    log_event("WARNING", "Logika", f"Не вдалося оновити дані з Logika для '{lesson.group_name}': {l_err}")
+
             try:
                 await _send_lesson_report(
                     db,

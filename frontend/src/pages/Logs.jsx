@@ -133,10 +133,10 @@ export default function Logs() {
                     <p>Історія роботи додатку та можливі помилки</p>
                 </div>
                 <div>
-                    <button className="btn btn-secondary" onClick={fetchLogs} style={{ marginRight: '10px' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={fetchLogs} style={{ marginRight: '8px' }}>
                         Оновити
                     </button>
-                    <button className="btn btn-danger" onClick={clearLogs}>
+                    <button className="btn btn-danger btn-sm" onClick={clearLogs}>
                         Очистити журнал
                     </button>
                 </div>

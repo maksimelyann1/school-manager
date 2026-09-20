@@ -409,7 +409,7 @@ function ParentsReport() {
             const payload = {
                 prompt_template: settings.prompt_template || '',
                 auto_reports_enabled: !!settings.auto_reports_enabled,
-                report_delay_minutes: Number(settings.report_delay_minutes ?? 0),
+                report_delay_minutes: Number(settings.report_delay_minutes ?? 10),
                 report_notifications_enabled: !!settings.report_notifications_enabled,
                 report_notification_delay_minutes: Number(settings.report_notification_delay_minutes ?? 0),
                 default_duration_minutes: Number(settings.default_duration_minutes || 90),
@@ -442,6 +442,36 @@ function ParentsReport() {
             showError(error.message)
         } finally {
             setBusy('')
+        }
+    }
+
+    const syncLogikaSchedule = async () => {
+        setBusy('sync-logika')
+        try {
+            const result = await requestJson(`${API_URL}/logika/sync-schedule`, {
+                method: 'POST',
+            })
+            showSuccess(result.message || 'Розклад Logika успішно оновлено')
+            await loadAll()
+        } catch (error) {
+            showError(error.message || 'Не вдалося синхронізувати Logika')
+        } finally {
+            setBusy(null)
+        }
+    }
+
+    const fetchLogikaAbsentsForLesson = async (lessonId) => {
+        setBusy(`absents-${lessonId}`)
+        try {
+            const res = await requestJson(`${API_URL}/logika/fetch-absents/${lessonId}`, {
+                method: 'POST',
+            })
+            showSuccess(res.absents?.length ? `Відсутні: ${res.absents_text}` : 'Усі учні були присутні')
+            await loadAll()
+        } catch (err) {
+            showError(err.message || 'Не вдалося підтягнути відсутніх з Logika')
+        } finally {
+            setBusy(null)
         }
     }
 
@@ -1020,7 +1050,23 @@ function ParentsReport() {
         }
 
         if (column.id === 'absents') {
-            return <EditableText value={lesson.absents} onSave={(value) => patchLesson(lesson.id, { absents: value })} />
+            return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <EditableText value={lesson.absents} onSave={(value) => patchLesson(lesson.id, { absents: value })} />
+                    {lesson.logika_schedule_id ? (
+                        <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '2px 6px', fontSize: '0.75rem', height: '26px', minWidth: '26px' }}
+                            title="Оновити відсутніх з журналу Logika"
+                            onClick={() => fetchLogikaAbsentsForLesson(lesson.id)}
+                            disabled={busy === `absents-${lesson.id}`}
+                        >
+                            {busy === `absents-${lesson.id}` ? '...' : '🔄'}
+                        </button>
+                    ) : null}
+                </div>
+            )
         }
 
         if (column.id === 'lesson_title') {
@@ -1150,7 +1196,7 @@ function ParentsReport() {
                 <div>
                     <h2>Звіт батькам</h2>
                 </div>
-                <button type="button" className="btn btn-secondary" onClick={loadAll} disabled={!!busy}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={loadAll} disabled={!!busy}>
                     Оновити
                 </button>
             </div>
@@ -1344,6 +1390,9 @@ function ParentsReport() {
                             <button type="button" className="btn btn-secondary btn-sm" onClick={syncReportSource} disabled={!!busy}>
                                 {busy === 'sync-source' ? 'Оновлюю...' : 'Оновити базу звітів'}
                             </button>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={syncLogikaSchedule} disabled={!!busy} title="Синхронізувати розклад та теми з Logika Backoffice">
+                                {busy === 'sync-logika' ? 'Синхронізація Logika...' : '🎓 Синхронізація Logika'}
+                            </button>
                             <button type="button" className="btn btn-primary btn-sm" onClick={exportWorkbook} disabled={!!busy}>
                                 {busy === 'export' ? 'Експортую...' : 'Експорт розкладу'}
                             </button>
@@ -1368,7 +1417,7 @@ function ParentsReport() {
                             <label className="form-group">
                                 <span className="form-label">Затримка автозвіту, хв</span>
                                 <NumberStepper
-                                    value={settings?.report_delay_minutes ?? 0}
+                                    value={settings?.report_delay_minutes ?? 10}
                                     onChange={(value) => updateSetting('report_delay_minutes', value)}
                                     min={0}
                                     max={240}

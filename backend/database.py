@@ -191,6 +191,10 @@ def ensure_schema_migrations():
                 column["name"]
                 for column in inspector.get_columns("parent_report_lessons")
             }
+            if "logika_schedule_id" not in parent_lesson_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_lessons ADD COLUMN logika_schedule_id INTEGER")
+                )
             if "row_order" not in parent_lesson_columns:
                 connection.execute(
                     text("ALTER TABLE parent_report_lessons ADD COLUMN row_order INTEGER DEFAULT 0 NOT NULL")

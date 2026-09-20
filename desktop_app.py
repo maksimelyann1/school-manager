@@ -1053,7 +1053,11 @@ def run_smoke_test() -> int:
         if not os.path.isdir(BACKEND_DIR):
             raise RuntimeError(f"Backend directory is missing: {BACKEND_DIR}")
 
-        frontend_index = os.path.join(BASE_DIR, "frontend", "dist", "index.html")
+        dist_new_index = os.path.join(BASE_DIR, "frontend", "dist-new", "index.html")
+        if os.path.isfile(dist_new_index):
+            frontend_index = dist_new_index
+        else:
+            frontend_index = os.path.join(BASE_DIR, "frontend", "dist", "index.html")
         if not os.path.isfile(frontend_index):
             raise RuntimeError(f"Frontend build is missing: {frontend_index}")
 
