@@ -195,7 +195,7 @@ def disconnect_logika(db: Session = Depends(get_db)):
 
 
 @router.post("/sync-schedule")
-def sync_schedule(db: Session = Depends(get_db)):
+async def sync_schedule(db: Session = Depends(get_db)):
     settings = get_or_create_logika_settings(db)
     client = get_authenticated_client(settings, db)
 
@@ -224,14 +224,10 @@ def sync_schedule(db: Session = Depends(get_db)):
                 groups_map[g_key] = g_name
 
         today = datetime.now().date()
-        active_group_names = set()
         synced_count = 0
         updated_count = 0
 
         for g_key, g_name in groups_map.items():
-            active_group_names.add(g_name)
-
-            # Отримуємо повний розклад курсу цієї групи для точного підрахунку уроків
             all_group_lessons = []
             try:
                 all_group_lessons = client.get_group_schedule(g_key)
@@ -243,7 +239,6 @@ def sync_schedule(db: Session = Depends(get_db)):
 
             # Сортуємо уроки групи хронологічно
             all_group_lessons.sort(key=lambda x: x.get("start") or "")
-            finished_lessons = [l for l in all_group_lessons if l.get("lessonStatus") == "FINISH"]
 
             # Визначаємо поточний або найближчий урок
             target_lesson = None
@@ -279,13 +274,8 @@ def sync_schedule(db: Session = Depends(get_db)):
                 continue
 
             schedule_id = target_lesson.get("id")
-            course_name = (target_lesson.get("course", {}).get("value") or "").strip()
             lesson_title = (target_lesson.get("lesson", {}).get("value") or "").strip()
-
-            # Код уроку (напр. М2У4, М2У6, М2У1, М1У2)
             lesson_code_str = _extract_lesson_code(lesson_title)
-
-            # Кількість проведених уроків (номер уроку або кількість завершених)
             lesson_count_str = str(target_index)
 
             start_iso = target_lesson.get("start")
@@ -302,7 +292,7 @@ def sync_schedule(db: Session = Depends(get_db)):
             duration_sec = target_lesson.get("duration") or 5400
             duration_min = max(30, duration_sec // 60)
 
-            # Отримуємо відсутніх для завершених або сьогоднішніх уроків
+            # Отримуємо відсутніх ТІЛЬКИ якщо урок уже відбувся і в Logika є фактичні відмітки
             absents_str = None
             attended = target_lesson.get("attendedAmount") or 0
             if target_lesson.get("lessonStatus") == "FINISH" or attended > 0:
@@ -313,43 +303,73 @@ def sync_schedule(db: Session = Depends(get_db)):
                 except Exception as e:
                     log_event("WARNING", "Logika", f"Не вдалося отримати відсутніх для уроку {schedule_id}: {e}")
 
-            # Залишаємо рівно 1 рядок на кожну групу у тижневому розкладі
-            existing_rows = (
+            # Шукаємо існуючий рядок розкладу (за logika_group_id, group_name або schedule_id)
+            existing = (
                 db.query(ParentReportLesson)
-                .filter(ParentReportLesson.group_name == g_name)
-                .all()
+                .filter(
+                    (ParentReportLesson.logika_group_id == g_key) |
+                    (ParentReportLesson.group_name == g_name) |
+                    (ParentReportLesson.logika_schedule_id == schedule_id)
+                )
+                .first()
             )
 
-            if existing_rows:
-                existing = existing_rows[0]
-                for dup in existing_rows[1:]:
-                    db.delete(dup)
+            if existing:
+                # 1. Завжди підтримуємо системний зв'язок з Logika
+                existing.logika_group_id = g_key
                 existing.logika_schedule_id = schedule_id
-                existing.lesson_code = lesson_code_str
-                existing.lesson_count = lesson_count_str
-                if lesson_title:
+
+                # 2. Оновлюємо код і номер уроку
+                if lesson_code_str:
+                    existing.lesson_code = lesson_code_str
+                if lesson_count_str:
+                    existing.lesson_count = lesson_count_str
+
+                # 3. Базову назву уроку оновлюємо тільки якщо тема ще порожня
+                if lesson_title and not existing.lesson_title:
                     existing.lesson_title = lesson_title
-                # Не перезаписуємо курс! Користувач сам обирає потрібний курс з Google Таблиці
-                if not existing.course:
-                    valid_courses = [c.name for c in db.query(ParentReportCourse).all()]
-                    if course_name in valid_courses:
-                        existing.course = course_name
-                if day_str:
-                    existing.day = day_str
-                if start_time_str:
-                    existing.start_time = start_time_str
-                if duration_min:
-                    existing.duration_minutes = duration_min
-                if absents_str is not None:
+
+                # 4. Відсутні: оновлюємо ТІЛЬКИ якщо є фактичні відмітки (НЕ ЗАТИРАЄМО існуючих!)
+                if absents_str:
                     existing.absents = absents_str
+
+                # 5. День і час: НЕ збиваємо налаштування користувача, заповнюємо тільки якщо порожні
+                if not existing.day and day_str:
+                    existing.day = day_str
+                if not existing.start_time and start_time_str:
+                    existing.start_time = start_time_str
+                if not existing.duration_minutes and duration_min:
+                    existing.duration_minutes = duration_min
+
+                # 6. Тема з Google Таблиці: якщо користувач вибрав курс, підтягуємо точний опис уроку з бази Google Таблиці!
+                if existing.course:
+                    try:
+                        from routers.parents_report import _refresh_lesson_from_source_by_code
+                        await _refresh_lesson_from_source_by_code(db, existing)
+                    except Exception as ref_err:
+                        log_event("WARNING", "Logika", f"Не вдалося оновити тему з Google Таблиці: {ref_err}")
+
+                # 7. Збережена Telegram-група: перевіряємо мапінг, якщо ще не вибрана
+                if not existing.telegram_group_id:
+                    legacy = db.query(ParentReportGroupMap).filter(
+                        ParentReportGroupMap.lesson_group_name == existing.group_name
+                    ).first()
+                    if legacy and legacy.telegram_group_id:
+                        existing.telegram_group_id = legacy.telegram_group_id
+
+                # НЕ ЧІПАЄМО: existing.telegram_group_id, existing.course, existing.last_report_date!
                 updated_count += 1
             else:
-                valid_courses = [c.name for c in db.query(ParentReportCourse).all()]
-                new_course = course_name if course_name in valid_courses else ""
+                # Створюємо новий рядок ТІЛЬКИ якщо для цієї групи ще немає жодного запису
+                legacy = db.query(ParentReportGroupMap).filter(
+                    ParentReportGroupMap.lesson_group_name == g_name
+                ).first()
+                tg_id = legacy.telegram_group_id if legacy else None
+
                 new_lesson = ParentReportLesson(
                     source_sheet="Logika Backoffice",
                     group_name=g_name,
-                    course=new_course,
+                    course="",  # Користувач сам обирає потрібний курс з Google Таблиці
                     lesson_title=lesson_title,
                     lesson_code=lesson_code_str,
                     lesson_count=lesson_count_str,
@@ -357,37 +377,22 @@ def sync_schedule(db: Session = Depends(get_db)):
                     start_time=start_time_str,
                     duration_minutes=duration_min,
                     logika_schedule_id=schedule_id,
+                    logika_group_id=g_key,
+                    telegram_group_id=tg_id,
                     absents=absents_str or "",
                     imported_at=datetime.now().isoformat(),
                 )
-                # Перевіряємо, чи є вже збережений мапінг для цієї назви
-                legacy = db.query(ParentReportGroupMap).filter(ParentReportGroupMap.lesson_group_name == g_name).first()
-                if legacy and legacy.telegram_group_id:
-                    new_lesson.telegram_group_id = legacy.telegram_group_id
-
                 db.add(new_lesson)
                 synced_count += 1
 
-        # Очищуємо старі рядки з source_sheet == "Logika Backoffice", чиї групи не є активними
-        if active_group_names:
-            inactive_rows = (
-                db.query(ParentReportLesson)
-                .filter(
-                    ParentReportLesson.source_sheet == "Logika Backoffice",
-                    ~ParentReportLesson.group_name.in_(active_group_names)
-                )
-                .all()
-            )
-            for old_row in inactive_rows:
-                db.delete(old_row)
-
+        # ЖОДНИХ видалень існуючих рядків розкладу!
         total_active = len(groups_map)
         settings.last_sync_at = datetime.now().isoformat()
         settings.last_sync_count = total_active
         settings.last_error = None
         db.commit()
 
-        log_event("INFO", "Logika", f"Синхронізовано {total_active} активних груп викладача (додано {synced_count}, оновлено {updated_count})")
+        log_event("INFO", "Logika", f"Синхронізація розкладу: {total_active} груп (додано {synced_count}, оновлено {updated_count})")
         return {
             "success": True,
             "added": synced_count,

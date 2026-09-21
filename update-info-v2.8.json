@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.8",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.8/SchoolManager_Setup.exe",
+  "changelog": "• Надійне збереження налаштувань розкладу: курс, день, час та Telegram-група більше не збиваються при автосинхронізації з Logika.\n• Автоматичне збагачення тем уроків даними з Google Таблиці за кодом уроку.\n• Додано ідентифікатор групи Logika (logika_group_id) для точного системного зіставлення.\n• Виправлено та прискорено фонову автосинхронізацію при старті програми.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.8/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.8/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

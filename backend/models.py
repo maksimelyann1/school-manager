@@ -174,6 +174,7 @@ class ParentReportLesson(Base):
     raw_data = Column(Text, nullable=True)
     imported_at = Column(String, nullable=True)
     logika_schedule_id = Column(Integer, nullable=True, index=True)
+    logika_group_id = Column(Integer, nullable=True, index=True)
     telegram_group = relationship("Group")
 
 

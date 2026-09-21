@@ -101,16 +101,16 @@ async def lifespan(app: FastAPI):
                 import asyncio
                 from routers.logika import sync_schedule
 
-                def _bg_sync():
+                async def _bg_sync():
                     sync_db = SessionLocal()
                     try:
-                        sync_schedule(db=sync_db)
+                        await sync_schedule(db=sync_db)
                     except Exception as err:
                         print(f"[Main] Помилка авто-синхронізації Logika: {err}")
                     finally:
                         sync_db.close()
 
-                asyncio.create_task(asyncio.to_thread(_bg_sync))
+                asyncio.create_task(_bg_sync())
         except Exception as e:
             print(f"[Main] Помилка перевірки автосинхронізації Logika: {e}")
     finally:
@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.7.0",
+    version="2.8.0",
     lifespan=lifespan
 )
 
@@ -247,7 +247,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.7 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.8 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }

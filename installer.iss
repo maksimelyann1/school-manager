@@ -1,6 +1,6 @@
 [Setup]
 AppName=School Manager
-AppVersion=2.7
+AppVersion=2.8
 DefaultDirName={autopf}\SchoolManager
 DefaultGroupName=School Manager
 UninstallDisplayIcon={app}\SchoolManager.exe

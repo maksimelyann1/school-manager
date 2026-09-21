@@ -117,8 +117,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "School Manager",
         "CFBundleDisplayName": "School Manager",
-        "CFBundleShortVersionString": "2.7",
-        "CFBundleVersion": "2.7.0",
+        "CFBundleShortVersionString": "2.8",
+        "CFBundleVersion": "2.8.0",
         "NSHighResolutionCapable": True,
     },
 )

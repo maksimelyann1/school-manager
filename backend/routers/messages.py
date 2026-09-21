@@ -837,7 +837,7 @@ async def import_url_file(payload: ImportUrlRequest):
         raise HTTPException(status_code=400, detail="Підтримуються тільки http/https посилання")
 
     timeout = httpx.Timeout(60.0, connect=10.0)
-    headers = {"User-Agent": "SchoolManager/2.7"}
+    headers = {"User-Agent": "SchoolManager/2.8"}
 
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:

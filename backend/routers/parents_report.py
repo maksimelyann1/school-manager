@@ -1036,11 +1036,11 @@ async def _source_course_lesson_lookup_by_code(
 def _apply_course_item_to_lesson(lesson: ParentReportLesson, item: dict[str, Any] | ParentReportCourseLesson):
     getter = item.get if isinstance(item, dict) else lambda key, default=None: getattr(item, key, default)
     lesson.lesson_count = str(getter("lesson_count", lesson.lesson_count) or lesson.lesson_count or "")
-    lesson.lesson_code = getter("lesson_code", "") or ""
-    lesson.lesson_title = getter("lesson_title", "") or ""
-    lesson.lesson_topic_detail = ""
-    lesson.lesson_report_text = ""
-    lesson.topic = getter("lesson_title", "") or ""
+    lesson.lesson_code = getter("lesson_code", "") or lesson.lesson_code or ""
+    lesson.lesson_title = getter("lesson_title", "") or lesson.lesson_title or ""
+    lesson.lesson_topic_detail = getter("lesson_topic_detail", "") or ""
+    lesson.lesson_report_text = getter("lesson_report_text", "") or ""
+    lesson.topic = lesson.lesson_report_text or lesson.lesson_topic_detail or lesson.lesson_title or ""
 
 
 def _replace_course_names_in_db(
@@ -2593,7 +2593,16 @@ async def update_schedule_row(lesson_id: int, payload: ScheduleUpdate, db: Sessi
             if not group:
                 raise HTTPException(status_code=404, detail="Telegram-групу не знайдено")
             lesson.telegram_group_id = group.id
-            lesson.group_name = group.name
+            # Не змінюємо group_name, щоб не ламати зв'язок з розкладом!
+            if not lesson.group_name:
+                lesson.group_name = group.name
+            # Запам'ятовуємо вибір у ParentReportGroupMap
+            group_map = db.query(ParentReportGroupMap).filter(ParentReportGroupMap.lesson_group_name == lesson.group_name).first()
+            if not group_map:
+                group_map = ParentReportGroupMap(lesson_group_name=lesson.group_name)
+                db.add(group_map)
+            group_map.telegram_group_id = group.id
+            group_map.updated_at = _now_iso()
         else:
             lesson.telegram_group_id = None
 
