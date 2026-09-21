@@ -329,8 +329,11 @@ def sync_schedule(db: Session = Depends(get_db)):
                 existing.lesson_count = lesson_count_str
                 if lesson_title:
                     existing.lesson_title = lesson_title
-                if course_name:
-                    existing.course = course_name
+                # Не перезаписуємо курс! Користувач сам обирає потрібний курс з Google Таблиці
+                if not existing.course:
+                    valid_courses = [c.name for c in db.query(ParentReportCourse).all()]
+                    if course_name in valid_courses:
+                        existing.course = course_name
                 if day_str:
                     existing.day = day_str
                 if start_time_str:
@@ -341,10 +344,12 @@ def sync_schedule(db: Session = Depends(get_db)):
                     existing.absents = absents_str
                 updated_count += 1
             else:
+                valid_courses = [c.name for c in db.query(ParentReportCourse).all()]
+                new_course = course_name if course_name in valid_courses else ""
                 new_lesson = ParentReportLesson(
                     source_sheet="Logika Backoffice",
                     group_name=g_name,
-                    course=course_name,
+                    course=new_course,
                     lesson_title=lesson_title,
                     lesson_code=lesson_code_str,
                     lesson_count=lesson_count_str,

@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.7",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.7/SchoolManager_Setup.exe",
+  "changelog": "• Покращено збереження обраного курсу при автосинхронізації розкладу з Logika Backoffice.\n• Оновлено вибір курсів у таблиці розкладу «Звіт батькам».\n• Загальні оптимізації та підвищення надійності роботи програми.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.7/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.7/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

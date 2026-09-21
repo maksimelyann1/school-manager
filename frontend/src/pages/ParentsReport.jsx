@@ -989,9 +989,7 @@ function ParentsReport() {
     )
 
     const renderEditableScheduleCell = (lesson, column) => {
-        const courseOptions = courses.some(course => course.name === lesson.course)
-            ? courses
-            : [...courses, { id: 'current-' + lesson.id, name: lesson.course }]
+        const courseOptions = courses
 
         if (column.id === 'group') {
             return (
