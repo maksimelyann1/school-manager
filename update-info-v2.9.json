@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.9",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.9/SchoolManager_Setup.exe",
+  "changelog": "• Додано задачник: задачі та події, календар на тиждень і місяць, список, перетягування, виконання, кошик і відновлення.\n• Додано задачі підготовки до подій, особисті нагадування та компактне вікно задачника.\n• Додано інтеграцію Google Календаря: синхронізацію, вибір календарів і розв’язання конфліктів. Для підключення потрібне окреме налаштування Google OAuth за інструкцією docs/google-calendar-setup.md.\n• Перед генерацією батьківського звіту перевіряється фактично завершений урок у Logika та його код; зберігаються ручні налаштування й матеріали уроків.\n• Посилено захист від повторного надсилання звітів після тайм-аутів і повторних запусків; додано перевірку невизначеної доставки.\n• Поліпшено автоматичну обробку прострочених звітів і одноразових нагадувань.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.9/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.9/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

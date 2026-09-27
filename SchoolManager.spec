@@ -11,7 +11,7 @@ datas = [
     (frontend_dir, os.path.join('frontend', 'dist')),
 ]
 binaries = []
-hiddenimports = ['main', 'pystray._win32', 'tgcrypto']
+hiddenimports = ['main', 'pystray._win32', 'tgcrypto', 'keyring.backends.Windows']
 tmp_ret = collect_all('fastapi')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('uvicorn')

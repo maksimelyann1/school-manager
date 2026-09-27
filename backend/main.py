@@ -11,6 +11,8 @@ from database import engine, Base, SessionLocal, ensure_schema_migrations
 from models import Group, BotSettings, AutoMessage, Template, Category, LogikaSettings, ParentReportLesson
 from routers import groups, settings, messages, auto_messages, templates, categories, logs, dashboard, files, stickers, parents_report, ai, logika
 from routers import system
+from routers import tasks
+from routers import planner_google
 from pyrogram_client import pyrogram_manager
 from telegram_credentials import get_effective_credentials, stored_credentials_match_default
 
@@ -33,6 +35,8 @@ async def lifespan(app: FastAPI):
     # Створюємо таблиці в базі даних
     Base.metadata.create_all(bind=engine)
     ensure_schema_migrations()
+    from services.planner.schema import ensure_planner_migrations
+    ensure_planner_migrations(engine)
     
     # Запускаємо локальний планувальник
     try:
@@ -40,6 +44,8 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass  # Може бути вже запущений при reload
     parents_report.init_scheduler(auto_messages.scheduler)
+    from services.planner.reminders import init_scheduler as init_planner_scheduler
+    init_planner_scheduler(auto_messages.scheduler)
     
     # Ініціалізуємо заплановані повідомлення в локальний планувальник
     db = SessionLocal()
@@ -117,6 +123,7 @@ async def lifespan(app: FastAPI):
         db.close()
     
     yield
+    await planner_google.oauth.stop()
     
     # Зупиняємо планувальник
     try:
@@ -137,7 +144,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.8.0",
+    version="2.9.0",
     lifespan=lifespan
 )
 
@@ -177,6 +184,8 @@ app.include_router(stickers.router, prefix="/api")
 app.include_router(parents_report.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(logika.router, prefix="/api")
+app.include_router(tasks.router, prefix="/api")
+app.include_router(planner_google.router, prefix="/api")
 
 
 import traceback
@@ -247,7 +256,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.8 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.9 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }

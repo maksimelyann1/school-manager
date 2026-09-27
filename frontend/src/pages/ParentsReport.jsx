@@ -264,7 +264,7 @@ function ParentsReport() {
 
     const lessons = workbook.schedule || []
     const courses = workbook.courses || []
-    const readyPendingCount = pending.filter(item => item.mapping_ready).length
+    const readyPendingCount = pending.filter(item => item.mapping_ready && !item.delivery_status).length
     const mappedCount = lessons.filter(item => item.telegram_group_id).length
     const sortedLessons = useMemo(() => {
         if (!scheduleSort.key) return lessons
@@ -285,6 +285,32 @@ function ParentsReport() {
     useEffect(() => {
         loadAll()
     }, [])
+
+    useEffect(() => {
+        if (!['pending', 'schedule', 'runs'].includes(activeTab) || busy || sendingReportIds.size) return
+        const controller = new AbortController()
+        let refreshing = false
+        const timer = window.setInterval(async () => {
+            if (refreshing || document.hidden) return
+            refreshing = true
+            try {
+                const [pendingData, workbookData, runsData] = await Promise.all([
+                    requestJson(`${API_URL}/parents-report/pending`, { signal: controller.signal }),
+                    requestJson(`${API_URL}/parents-report/workbook`, { signal: controller.signal }),
+                    requestJson(`${API_URL}/parents-report/runs`, { signal: controller.signal })
+                ])
+                if (controller.signal.aborted) return
+                setPending(pendingData.pending_lessons || [])
+                setWorkbook(workbookData)
+                setRuns(runsData || [])
+            } catch (error) {
+                if (error.name !== 'AbortError') console.error('Не вдалося оновити стан звітів', error)
+            } finally {
+                refreshing = false
+            }
+        }, 15000)
+        return () => { window.clearInterval(timer); controller.abort() }
+    }, [activeTab, busy, sendingReportIds])
 
     useEffect(() => {
         try {
@@ -911,6 +937,7 @@ function ParentsReport() {
     }
 
     const getSendBlockedReason = (lesson, isSending) => {
+        if (lesson.delivery_status) return lesson.delivery_warning || 'Перевіряється доставка звіту'
         if (isSending) return 'Звіт уже в черзі або відправляється'
         if (busy) return 'Зачекайте, виконується інша дія'
         if (!lesson.mapping_ready) return 'Спочатку виберіть Telegram-групу в базі даних'
@@ -1301,6 +1328,7 @@ function ParentsReport() {
                                                         урок {lesson.lesson_code || lesson.lesson_count || '-'}
                                                         {lesson.lesson_title ? ` (${lesson.lesson_title})` : ''}
                                                     </p>
+                                                    {lesson.delivery_warning && <p role="status">{lesson.delivery_warning}</p>}
                                                     {lesson.is_postponed && (
                                                         <p className="parents-postponed-note">
                                                             Перенесений урок
@@ -1338,7 +1366,7 @@ function ParentsReport() {
                                                     type="button"
                                                     className="btn btn-secondary parents-postpone-button"
                                                     onClick={(event) => openPostponeModal(lesson, event.currentTarget)}
-                                                    disabled={!!busy || isSending}
+                                                    disabled={!!busy || isSending || !!lesson.delivery_status}
                                                     title="Перенести урок на іншу дату"
                                                 >
                                                     <PostponeIcon />
@@ -1535,7 +1563,7 @@ function ParentsReport() {
                         ) : runs.map(run => (
                             <div key={run.id} className="parents-run-row">
                                 <div className={`parents-run-status ${run.status === 'success' ? 'success' : 'error'}`}>
-                                    {run.status === 'success' ? 'OK' : 'ERR'}
+                                    {{ success: 'OK', sending: 'Надсилання', uncertain: 'Перевірка' }[run.status] || 'ERR'}
                                 </div>
                                 <div>
                                     <strong>{run.lesson_group_name}</strong>

@@ -30,6 +30,7 @@ hiddenimports = [
     "Quartz",
     "WebKit",
     "pystray._darwin",
+    "keyring.backends.macOS",
 ]
 
 for package_name in (
@@ -117,8 +118,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "School Manager",
         "CFBundleDisplayName": "School Manager",
-        "CFBundleShortVersionString": "2.8",
-        "CFBundleVersion": "2.8.0",
+        "CFBundleShortVersionString": "2.9",
+        "CFBundleVersion": "2.9.0",
         "NSHighResolutionCapable": True,
     },
 )

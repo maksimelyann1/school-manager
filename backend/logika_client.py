@@ -183,14 +183,29 @@ class LogikaClient:
 
     def get_group_schedule(self, group_id: int) -> List[Dict[str, Any]]:
         """Отримує повний розклад усіх уроків для конкретної групи."""
-        resp = self._authorized_request(
-            "GET",
-            f"{LOGIKA_API_URL}/schedule",
-            params={"groupId": group_id, "size": 100},
-        )
-        if resp.status_code != 200:
-            return []
-        return resp.json().get("content", [])
+        lessons = []
+        seen_ids = set()
+        page = 0
+        while True:
+            resp = self._authorized_request(
+                "GET", f"{LOGIKA_API_URL}/schedule",
+                params={"groupId": group_id, "page": page, "size": 100},
+            )
+            if resp.status_code != 200:
+                raise Exception(f"Не вдалося отримати розклад групи: HTTP {resp.status_code}")
+            data = resp.json()
+            items = data.get("content", [])
+            if not items:
+                break
+            ids = {item.get("id") for item in items if item.get("id") is not None}
+            if page and ids and ids.issubset(seen_ids):
+                raise Exception("Logika повторює сторінку розкладу; не вдалося завантажити всі заняття")
+            seen_ids.update(ids)
+            lessons.extend(items)
+            if len(items) < 100 or data.get("last") is True:
+                break
+            page += 1
+        return lessons
 
     def get_attendance(self, schedule_id: int) -> List[Dict[str, Any]]:
         """Отримує журнал відвідуваності уроку."""

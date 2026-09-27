@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import secrets
 import tempfile
 import zipfile
 from datetime import date, datetime, time, timedelta
@@ -16,6 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, get_db
@@ -23,6 +25,7 @@ from logger import log_event
 from models import (
     AutoMessage,
     Group,
+    LogikaSettings,
     ParentReportCourse,
     ParentReportCourseLesson,
     ParentReportGroupMap,
@@ -32,7 +35,7 @@ from models import (
     ParentReportSettings,
 )
 from pyrogram_client import pyrogram_manager
-from routers.messages import send_pyrogram_message
+from report_delivery import UNCERTAIN_MESSAGE, find_delivered_report, is_ambiguous_error, send_report_message
 from routers import auto_messages
 from system_notifications import show_system_notification
 
@@ -54,6 +57,7 @@ SOURCE_CACHE_TTL = timedelta(hours=6)
 _source_course_lessons_cache: dict[str, list[dict[str, Any]]] = {}
 _source_cache_loaded_at: datetime | None = None
 _ai_report_lock = asyncio.Lock()
+_report_send_lock = asyncio.Lock()
 
 REPORT_LOG_MODULE = "ParentsReport"
 
@@ -1253,7 +1257,10 @@ def _apply_source_courses_to_db(
             lesson.lesson_report_text,
             lesson.topic,
         )
-        item = _course_lesson_lookup(course_lessons, lesson.course, lesson.lesson_count)
+        item = (
+            _course_lesson_lookup_by_code(course_lessons, lesson.course, lesson.lesson_code)
+            if lesson.lesson_code else _course_lesson_lookup(course_lessons, lesson.course, lesson.lesson_count)
+        )
         if item:
             _apply_course_item_to_lesson(lesson, item)
         else:
@@ -1509,6 +1516,10 @@ def _is_lesson_pending(
     if _lesson_date_is_closed(lesson, context["lesson_date"]):
         return None
 
+    delivery = _blocking_report_run(db, lesson, context["lesson_date"])
+    if delivery and delivery.status == "success":
+        return None
+
     return {
         **_serialize_lesson(lesson, settings),
         "lesson_date": _format_display_date(context["lesson_date"]),
@@ -1516,6 +1527,8 @@ def _is_lesson_pending(
         "ended_at": context["end_dt"].isoformat(),
         "available_at": context["available_at"].isoformat(),
         "end_time": context["end_dt"].strftime("%H:%M"),
+        "delivery_status": delivery.status if delivery else None,
+        "delivery_warning": UNCERTAIN_MESSAGE if delivery else "",
         "is_postponed": bool(context.get("is_postponed")),
         "postponed_from_date": context.get("postponed_from_date") or "",
     }
@@ -1573,6 +1586,85 @@ def _render_prompt(template: str, values: dict[str, str]) -> str:
     return prompt
 
 
+async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto):
+    if not (lesson.logika_group_id or lesson.logika_schedule_id or lesson.source_sheet == "Logika Backoffice"):
+        return
+
+    from logika_client import LogikaClient
+    from routers.logika import _extract_lesson_code
+
+    def fail(detail, status=409):
+        _raise_report_http(status, detail, action="Звіряння уроку з Logika", lesson=lesson, log=not is_auto)
+
+    config = db.query(LogikaSettings).first()
+    if not config or not config.login or not config.password:
+        fail("Підключіть Logika, щоб перевірити тему завершеного уроку")
+    if not lesson.logika_group_id:
+        fail("Для уроку немає ID групи Logika. Синхронізуйте розклад у налаштуваннях")
+    if not lesson.course:
+        fail("Виберіть курс із бази звітів для цієї групи")
+
+    client = LogikaClient(login=config.login, password=config.password,
+                          access_token=config.access_token, refresh_token=config.refresh_token,
+                          xsrf_token=config.xsrf_token)
+    try:
+        items = await asyncio.to_thread(client.get_group_schedule, lesson.logika_group_id)
+    except Exception as error:
+        fail(f"Не вдалося перевірити завершений урок у Logika: {error}", 502)
+
+    candidates = []
+    for item in items:
+        start = _parse_iso_datetime(item.get("start"))
+        if not start or start.date() != schedule["lesson_date"] or not item.get("id"):
+            continue
+        group_id = (item.get("group") or {}).get("key")
+        teacher_id = (item.get("teacher") or {}).get("key")
+        if group_id is not None and str(group_id) != str(lesson.logika_group_id):
+            continue
+        if config.teacher_id and teacher_id is not None and str(teacher_id) != str(config.teacher_id):
+            continue
+        status = str(item.get("lessonStatus") or item.get("status") or "").upper()
+        if item.get("deleted") or status in {"CANCEL", "CANCELED", "CANCELLED", "DELETED"}:
+            continue
+        candidates.append((item, start))
+
+    if len(candidates) > 1:
+        exact_time = [pair for pair in candidates if pair[1] == schedule["start_dt"]]
+        candidates = exact_time or [pair for pair in candidates if str(pair[0]["id"]) == str(lesson.logika_schedule_id)]
+    if len(candidates) != 1:
+        fail(f"Не вдалося однозначно знайти заняття в Logika за {schedule['lesson_date']:%d.%m.%Y}. Перевірте дату й час уроку")
+    target, start = candidates[0]
+    duration_seconds = _parse_int(target.get("duration")) or schedule["duration_minutes"] * 60
+    end = _parse_iso_datetime(target.get("end")) or start + timedelta(seconds=duration_seconds)
+    if end > datetime.now(KYIV_TZ):
+        fail("За розкладом Logika цей урок ще не завершився")
+    code = _extract_lesson_code((target.get("lesson") or {}).get("value") or "")
+    if not code:
+        fail("У назві завершеного уроку Logika не знайдено код модуля та уроку")
+    source_item = await _source_course_lesson_lookup_by_code(lesson.course, code)
+    if not source_item:
+        fail(f"У курсі '{lesson.course}' немає уроку {code} з Logika. Оновіть базу звітів або перевірте вибраний курс")
+
+    absents = None
+    if is_auto and config.auto_fetch_absents:
+        try:
+            absents = await asyncio.to_thread(client.get_absent_students, target["id"])
+        except Exception as error:
+            fail(f"Не вдалося отримати відсутніх із Logika: {error}", 502)
+
+    old_code = lesson.lesson_code
+    _apply_course_item_to_lesson(lesson, source_item)
+    lesson.logika_schedule_id = target["id"]
+    if absents:
+        lesson.absents = ", ".join(absents)
+    config.access_token = client.access_token
+    config.refresh_token = client.refresh_token
+    config.xsrf_token = client.xsrf_token
+    db.commit()
+    if old_code != lesson.lesson_code:
+        log_event("INFO", "Logika", f"Перед звітом для '{lesson.group_name}' за {schedule['lesson_date']:%d.%m.%Y} оновлено урок: {old_code or '—'} → {lesson.lesson_code} (№ {lesson.lesson_count})")
+
+
 async def _generate_ai_report(
     settings: ParentReportSettings,
     lesson: ParentReportLesson,
@@ -1590,7 +1682,15 @@ async def _generate_ai_report(
             log=not is_auto,
         )
 
-    source_item = await _source_course_lesson_lookup(lesson.course, lesson.lesson_count)
+    source_item = (
+        await _source_course_lesson_lookup_by_code(lesson.course, lesson.lesson_code)
+        if lesson.lesson_code else await _source_course_lesson_lookup(lesson.course, lesson.lesson_count)
+    )
+    if lesson.lesson_code and not source_item:
+        _raise_report_http(
+            409, f"У курсі '{lesson.course}' не знайдено урок {lesson.lesson_code}. Перевірте курс і базу звітів",
+            action="Генерація звіту", lesson=lesson, log=not is_auto,
+        )
     report_source = ""
     if source_item:
         report_source = source_item.get("lesson_report_text") or source_item.get("lesson_topic_detail") or ""
@@ -1872,7 +1972,133 @@ def _mark_lesson_reported(db: Session, lesson: ParentReportLesson, lesson_date: 
         lesson.lesson_count = str(int(str(lesson.lesson_count).strip()) + 1)
 
 
-async def _send_lesson_report(
+def _blocking_report_run(db: Session, lesson: ParentReportLesson, lesson_date: date):
+    runs = db.query(ParentReportRun).filter(
+        ParentReportRun.lesson_id == lesson.id,
+        ParentReportRun.lesson_date == _format_run_date(lesson_date),
+        ParentReportRun.is_test == 0,
+    ).order_by(ParentReportRun.id.desc()).all()
+    for run in runs:
+        if run.status == "success":
+            return run
+    for run in runs:
+        if run.status in {"sending", "uncertain"} or is_ambiguous_error(run.error):
+            return run
+    return None
+
+
+def _notify_auto_report_sent(db: Session, run: ParentReportRun):
+    try:
+        if not run.is_auto or run.is_test:
+            return
+        settings = db.query(ParentReportSettings).first()
+        if settings and not settings.report_notifications_enabled:
+            return
+        group = db.get(Group, run.telegram_group_id) if run.telegram_group_id else None
+        destination = group.name if group else run.lesson_group_name
+        lesson_date = _format_display_date(date.fromisoformat(run.lesson_date))
+        show_system_notification(
+            "Автозвіт відправлено",
+            f"{destination}\nЗвіт за {lesson_date} успішно надіслано в Telegram.",
+        )
+    except Exception as error:
+        db.rollback()
+        _log_report_issue("WARNING", f"Звіт збережено, але сповіщення про відправку не показано: {error}")
+
+
+def _complete_report_delivery(db: Session, lesson: ParentReportLesson, run: ParentReportRun,
+                              message_id: int):
+    changed = db.query(ParentReportRun).filter(
+        ParentReportRun.id == run.id, ParentReportRun.status != "success",
+    ).update({"status": "success", "error": None, "telegram_message_id": message_id})
+    db.refresh(lesson)
+    newly_reported = bool(changed) and not _lesson_date_is_closed(lesson, date.fromisoformat(run.lesson_date))
+    if not run.is_test and newly_reported:
+        _mark_lesson_reported(db, lesson, date.fromisoformat(run.lesson_date), run.absents)
+    # No network calls or follow-up work may precede this commit.
+    db.commit()
+    if changed:
+        _notify_auto_report_sent(db, run)
+    return newly_reported
+
+
+async def _after_report_delivery(db, lesson, settings, telegram_group, schedule, run):
+    if run.is_test:
+        return
+    followup = None
+    try:
+        followup = _create_report_followup_auto_message(
+            db, lesson, settings, telegram_group, schedule, run, run.absents or "",
+        )
+        db.commit()
+    except Exception as error:
+        db.rollback()
+        _log_report_issue("WARNING", f"Звіт збережено, але нагадування не створено: {error}")
+    if followup:
+        try:
+            auto_messages.schedule_auto_message(followup)
+            if pyrogram_manager.is_connected:
+                await auto_messages.schedule_created_auto_message_in_telegram(followup.id)
+        except Exception as error:
+            db.rollback()
+            _log_report_issue("WARNING", f"Звіт збережено, але нагадування не заплановано: {error}")
+    try:
+        await _refresh_lesson_from_source(db, lesson)
+        db.commit()
+    except Exception as error:
+        db.rollback()
+        _log_report_issue("WARNING", f"Звіт збережено, але наступну тему не оновлено: {error}")
+
+
+async def reconcile_report_deliveries(db: Session, *, force: bool = False):
+    if not pyrogram_manager.is_connected:
+        return
+    async with _report_send_lock:
+        runs = db.query(ParentReportRun).filter(
+            ParentReportRun.status.in_(["sending", "uncertain", "error"]),
+        ).order_by(ParentReportRun.id.desc()).limit(100).all()
+        for run in runs:
+            if run.status == "error" and not is_ambiguous_error(run.error):
+                continue
+            checked = _parse_iso_datetime(run.delivery_checked_at)
+            if not force and checked and datetime.now(KYIV_TZ) - checked < timedelta(minutes=5):
+                continue
+            lesson = db.get(ParentReportLesson, run.lesson_id)
+            group = db.get(Group, run.telegram_group_id)
+            if not lesson or not group or not run.message:
+                continue
+            run.status = "uncertain"
+            run.delivery_checked_at = _now_iso()
+            run.error = UNCERTAIN_MESSAGE
+            db.commit()
+            try:
+                message_id = await find_delivered_report(
+                    pyrogram_manager.client, run.telegram_chat_id or group.telegram_id,
+                    run.message, run.created_at, legacy=not bool(run.telegram_random_id),
+                )
+                if message_id is None:
+                    continue
+                settings = _get_or_create_settings(db)
+                schedule = _lesson_schedule_context(lesson, settings)
+                newly_reported = _complete_report_delivery(db, lesson, run, message_id)
+                _log_report_issue("INFO", f"Доставку звіту '{lesson.group_name}' підтверджено з історії Telegram (#{message_id}).")
+                # A historical recovery must not schedule an outdated reminder.
+                if newly_reported and schedule and schedule["lesson_date"] == date.fromisoformat(run.lesson_date):
+                    await _after_report_delivery(db, lesson, settings, group, schedule, run)
+            except Exception as error:
+                db.rollback()
+                _log_report_issue("WARNING", f"Не вдалося перевірити доставку звіту #{run.id}: {error}")
+
+
+async def _send_lesson_report(db, lesson, settings, message, absents, is_auto, is_test):
+    async with _report_send_lock:
+        db.refresh(lesson)
+        return await _send_lesson_report_locked(
+            db, lesson, settings, message, absents, is_auto, is_test,
+        )
+
+
+async def _send_lesson_report_locked(
     db: Session,
     lesson: ParentReportLesson,
     settings: ParentReportSettings,
@@ -1900,6 +2126,13 @@ async def _send_lesson_report(
             log=not is_auto,
         )
 
+    if not is_test:
+        existing = _blocking_report_run(db, lesson, schedule["lesson_date"])
+        if existing:
+            raise HTTPException(status_code=409, detail=(
+                "Звіт для цього уроку вже відправлено" if existing.status == "success" else UNCERTAIN_MESSAGE
+            ))
+
     telegram_group = _telegram_group_for_lesson(db, lesson)
     if not telegram_group:
         _raise_report_http(
@@ -1921,73 +2154,73 @@ async def _send_lesson_report(
 
     report_text = (message or "").strip()
     if not report_text:
+        await _sync_logika_lesson_before_report(db, lesson, schedule, is_auto=is_auto)
+        if is_auto:
+            absents = lesson.absents or ""
         report_text = await _generate_ai_report(settings, lesson, absents, test=is_test, is_auto=is_auto)
     elif is_test and not report_text.startswith("ТЕСТ"):
         report_text = f"ТЕСТ\n{report_text}"
 
-    result = await send_pyrogram_message(
-        telegram_group.telegram_id,
-        report_text,
-        queue_label=f"\u0417\u0432\u0456\u0442 \u0431\u0430\u0442\u044c\u043a\u0430\u043c: {lesson.group_name}",
-    )
-    if not result.get("ok"):
-        error = result.get("description") or "Не вдалося відправити звіт"
-        _record_report_run(
-            db,
-            lesson,
-            schedule["lesson_date"],
-            "error",
-            report_text,
-            error,
-            telegram_group.id,
-            absents,
-            is_auto,
-            is_test,
-        )
+    delivery_key = None if is_test else f"{lesson.id}:{_format_run_date(schedule['lesson_date'])}"
+    # Commit the send intent before Telegram. A unique key also guards other processes.
+    try:
+        report_run = db.query(ParentReportRun).filter(
+            ParentReportRun.delivery_key == delivery_key,
+        ).first() if delivery_key else None
+        if report_run:
+            claimed = db.query(ParentReportRun).filter(
+                ParentReportRun.id == report_run.id, ParentReportRun.status == "error",
+            ).update({"status": "sending"}, synchronize_session=False)
+            if not claimed:
+                db.rollback()
+                raise HTTPException(status_code=409, detail=UNCERTAIN_MESSAGE)
+            db.refresh(report_run)
+            report_run.message = report_text
+            report_run.absents = absents or ""
+            report_run.telegram_group_id = telegram_group.id
+            report_run.error = None
+            report_run.created_at = _now_iso()
+        else:
+            report_run = _record_report_run(
+                db, lesson, schedule["lesson_date"], "sending", report_text, None,
+                telegram_group.id, absents, is_auto, is_test,
+            )
+            report_run.delivery_key = delivery_key
+        report_run.telegram_random_id = str(secrets.randbits(63) or 1)
+        report_run.telegram_chat_id = telegram_group.telegram_id
         db.commit()
-        if not is_auto:
-            _log_report_issue("ERROR", f"Відправка звіту для '{lesson.group_name}' у '{telegram_group.name}' не вдалася: {error}")
-        raise HTTPException(status_code=502, detail=error)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=UNCERTAIN_MESSAGE)
 
-    report_run = _record_report_run(
-        db,
-        lesson,
-        schedule["lesson_date"],
-        "success",
-        report_text,
-        None,
-        telegram_group.id,
-        absents,
-        is_auto,
-        is_test,
-    )
-    followup_auto_message = None
-    if not is_test:
-        try:
-            followup_auto_message = _create_report_followup_auto_message(
-                db,
-                lesson,
-                settings,
-                telegram_group,
-                schedule,
-                report_run,
-                absents or "",
-            )
-        except Exception as error:
-            _log_report_issue(
-                "WARNING",
-                f"Не вдалося створити автоповідомлення після звіту '{lesson.group_name}': {error}",
-            )
-    if not is_test:
-        _mark_lesson_reported(db, lesson, schedule["lesson_date"], absents)
-        await _refresh_lesson_from_source(db, lesson)
-    db.commit()
-    db.refresh(lesson)
+    try:
+        result = await send_report_message(
+            pyrogram_manager.client, report_run.telegram_chat_id, report_run.message,
+            report_run.telegram_random_id, f"Звіт батькам: {lesson.group_name}",
+        )
+    except Exception as error:
+        result = {"ok": False, "uncertain": True, "description": str(error)}
+    if not result.get("ok"):
+        uncertain = result.get("uncertain", True)
+        report_run.status = "uncertain" if uncertain else "error"
+        report_run.error = (UNCERTAIN_MESSAGE + " " if uncertain else "") + (result.get("description") or "Помилка Telegram")
+        report_run.delivery_checked_at = _now_iso()
+        db.commit()
+        message_id = None
+        if uncertain:
+            try:
+                message_id = await find_delivered_report(
+                    pyrogram_manager.client, report_run.telegram_chat_id,
+                    report_run.message, report_run.created_at,
+                )
+            except Exception as error:
+                _log_report_issue("WARNING", f"Не вдалося перевірити доставку звіту #{report_run.id}: {error}")
+        if message_id is None:
+            raise HTTPException(status_code=502, detail=report_run.error)
+        result = {"ok": True, "message_id": message_id}
 
-    if followup_auto_message:
-        auto_messages.schedule_auto_message(followup_auto_message)
-        if pyrogram_manager.is_connected:
-            await auto_messages.schedule_created_auto_message_in_telegram(followup_auto_message.id)
+    if _complete_report_delivery(db, lesson, report_run, result["message_id"]):
+        await _after_report_delivery(db, lesson, settings, telegram_group, schedule, report_run)
 
     log_event(
         "INFO",
@@ -2039,6 +2272,7 @@ def _collect_pending(
 async def process_auto_reports():
     db = SessionLocal()
     try:
+        await reconcile_report_deliveries(db)
         settings = _get_or_create_settings(db)
         if not settings.auto_reports_enabled:
             return
@@ -2053,6 +2287,8 @@ async def process_auto_reports():
 
         pending = _collect_pending(db, settings, include_report_delay=True)
         for item in pending:
+            if item.get("delivery_status"):
+                continue
             if item.get("is_postponed"):
                 continue
             if not item.get("mapping_ready"):
@@ -2060,50 +2296,6 @@ async def process_auto_reports():
             lesson = db.query(ParentReportLesson).filter(ParentReportLesson.id == item["id"]).first()
             if not lesson:
                 continue
-
-            # Автоматично перевіряємо актуальну тему та підтягуємо відсутніх з Logika перед автозвітом
-            if getattr(lesson, "logika_schedule_id", None) or getattr(lesson, "source_sheet", None) == "Logika Backoffice":
-                try:
-                    from models import LogikaSettings
-                    from routers.logika import get_authenticated_client, _extract_lesson_code
-                    l_settings = db.query(LogikaSettings).first()
-                    if l_settings and getattr(l_settings, "auto_fetch_absents", 1):
-                        l_client = get_authenticated_client(l_settings, db)
-                        today_date = datetime.now(KYIV_TZ).date()
-                        fresh_sched = l_client.get_schedule(
-                            page=0, size=50,
-                            teacher_id=l_settings.teacher_id,
-                            status="ACTIVE",
-                            is_start_day_now=True,
-                        )
-                        today_item = None
-                        for s_item in fresh_sched:
-                            if s_item.get("group", {}).get("value") == lesson.group_name and s_item.get("start"):
-                                try:
-                                    s_date = datetime.fromisoformat(s_item["start"]).date()
-                                    if s_date == today_date:
-                                        today_item = s_item
-                                        break
-                                except Exception:
-                                    pass
-                        target_sched_id = lesson.logika_schedule_id
-                        if today_item:
-                            target_sched_id = today_item.get("id", target_sched_id)
-                            new_title = (today_item.get("lesson", {}).get("value") or "").strip()
-                            if new_title and new_title != lesson.lesson_title:
-                                old_code = lesson.lesson_code
-                                lesson.lesson_title = new_title
-                                lesson.lesson_code = _extract_lesson_code(new_title)
-                                lesson.logika_schedule_id = target_sched_id
-                                log_event("INFO", "Logika", f"Зміна теми для '{lesson.group_name}': було {old_code} -> стало {lesson.lesson_code}")
-                        if target_sched_id:
-                            abs_list = l_client.get_absent_students(target_sched_id)
-                            if abs_list:
-                                lesson.absents = ", ".join(abs_list)
-                            log_event("INFO", "Logika", f"Підтягнуто відсутніх для '{lesson.group_name}': {lesson.absents or 'усі присутні'}")
-                        db.commit()
-                except Exception as l_err:
-                    log_event("WARNING", "Logika", f"Не вдалося оновити дані з Logika для '{lesson.group_name}': {l_err}")
 
             try:
                 await _send_lesson_report(
@@ -2116,8 +2308,10 @@ async def process_auto_reports():
                     is_test=False,
                 )
             except HTTPException as error:
+                db.rollback()
                 log_event("WARNING", "ParentsReport", f"Автозвіт для '{lesson.group_name}' не відправлено: {error.detail}")
             except Exception as error:
+                db.rollback()
                 log_event("ERROR", "ParentsReport", f"Автозвіт для '{lesson.group_name}' не відправлено: {error}")
     finally:
         db.close()
@@ -2626,7 +2820,10 @@ async def update_schedule_row(lesson_id: int, payload: ScheduleUpdate, db: Sessi
     elif "lesson_code" in data:
         await _refresh_lesson_from_source_by_code(db, lesson)
     elif "course" in data:
-        await _refresh_lesson_from_source(db, lesson)
+        if lesson.lesson_code:
+            await _refresh_lesson_from_source_by_code(db, lesson)
+        else:
+            await _refresh_lesson_from_source(db, lesson)
 
     if "last_report_date" in data:
         db.query(ParentReportNotification).filter(

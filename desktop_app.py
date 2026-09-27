@@ -623,6 +623,10 @@ def _quit_application(icon: pystray.Icon | None = None):
     _allow_window_close = True
     _request_backend_shutdown()
 
+    widget = DesktopApi._task_widget
+    if widget:
+        _destroy_window_safely(widget)
+
     tray_icon = icon or _tray
     if tray_icon:
         try:
@@ -642,7 +646,37 @@ class SplashApi:
         _quit_application()
 
 
+class PlannerWidgetApi:
+    def open_planner(self):
+        if _window is None:
+            return False
+        _window.show()
+        _window.restore()
+        _window.evaluate_js("document.querySelector('.sidebar-nav a[href=\"/tasks\"]')?.click()")
+        _bring_window_to_foreground_async(_window)
+        return True
+
+
 class DesktopApi:
+    _task_widget = None
+    _task_widget_lock = threading.Lock()
+
+    def open_task_widget(self):
+        with self._task_widget_lock:
+            if self._task_widget is not None:
+                self._task_widget.show()
+                self._task_widget.restore()
+                return True
+            def closed():
+                DesktopApi._task_widget = None
+            widget = webview.create_window('Мої задачі · School Manager',
+                'http://127.0.0.1:8001/tasks/widget', width=380, height=560,
+                min_size=(340, 380), background_color='#0f172a', on_top=False,
+                js_api=PlannerWidgetApi())
+            DesktopApi._task_widget = widget
+            widget.events.closed += closed
+            return True
+
     def get_window_state(self):
         if not _window:
             return {"maximized": False, "x": 0, "y": 0, "width": MAIN_WINDOW_WIDTH, "height": MAIN_WINDOW_HEIGHT}
@@ -1063,6 +1097,11 @@ def run_smoke_test() -> int:
 
         from main import app as backend_app  # noqa: F401
         from version_config import APP_VERSION
+        from services.planner.google_auth import vault
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo("Europe/Kyiv")
+        vault()  # Check the platform adapter without reading or writing credentials.
 
         print(json.dumps({
             "ok": True,

@@ -46,6 +46,10 @@ desktop.ini
 
 # Runtime storage generated on user machines
 tokens.json
+google-desktop-client.json
+client_secret*.json
+.playwright-cli/
+output/playwright/
 template_files/
 auto_message_files/
 import_cache/

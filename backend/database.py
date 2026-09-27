@@ -52,6 +52,22 @@ def ensure_schema_migrations():
     table_names = set(inspector.get_table_names())
 
     with engine.begin() as connection:
+        if "parent_report_runs" in table_names:
+            run_columns = {column["name"] for column in inspector.get_columns("parent_report_runs")}
+            for name, sql_type in (
+                ("delivery_key", "VARCHAR"),
+                ("telegram_random_id", "VARCHAR"),
+                ("telegram_chat_id", "VARCHAR"),
+                ("telegram_message_id", "INTEGER"),
+                ("delivery_checked_at", "VARCHAR"),
+            ):
+                if name not in run_columns:
+                    connection.execute(text(f"ALTER TABLE parent_report_runs ADD COLUMN {name} {sql_type}"))
+            connection.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_parent_report_delivery_key "
+                "ON parent_report_runs (delivery_key)"
+            ))
+
         if "bot_settings" in table_names:
             bot_settings_columns = {
                 column["name"]
@@ -234,16 +250,6 @@ def ensure_schema_migrations():
                 connection.execute(
                     text("ALTER TABLE parent_report_lessons ADD COLUMN postponed_created_at VARCHAR")
                 )
-            if {"lesson_report_text", "lesson_topic_detail"}.issubset(parent_lesson_columns | {"lesson_report_text"}):
-                clear_columns = []
-                if "lesson_report_text" in parent_lesson_columns:
-                    clear_columns.append("lesson_report_text = NULL")
-                if "lesson_topic_detail" in parent_lesson_columns:
-                    clear_columns.append("lesson_topic_detail = NULL")
-                if clear_columns:
-                    connection.execute(
-                        text(f"UPDATE parent_report_lessons SET {', '.join(clear_columns)}")
-                    )
             if "parent_report_group_maps" in table_names:
                 connection.execute(
                     text(
@@ -265,7 +271,6 @@ def ensure_schema_migrations():
                 connection.execute(
                     text("ALTER TABLE parent_report_course_lessons ADD COLUMN lesson_report_text TEXT")
                 )
-            connection.execute(text("DELETE FROM parent_report_course_lessons"))
             if {"lesson_count", "source_row"}.issubset(parent_course_lesson_columns):
                 connection.execute(
                     text(

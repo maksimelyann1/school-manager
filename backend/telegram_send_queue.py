@@ -127,7 +127,7 @@ class TelegramSendQueue:
                     log_event(
                         "WARNING",
                         module,
-                        f"Telegram не прийняв: {label}. Причина: {reason}. Повторів: {attempt}",
+                        f"Telegram не підтвердив відправку: {label}. Причина: {reason}. Повторів: {attempt}",
                     )
                     result.setdefault("attempts", attempt_number)
                     result.setdefault("queue_wait_seconds", wait_seconds)
@@ -137,7 +137,7 @@ class TelegramSendQueue:
                 log_event(
                     "WARNING",
                     module,
-                    f"Telegram не прийняв: {label}. Причина: {reason}. Повтор {attempt_number}/{retries + 1} через {delay:g} с",
+                    f"Telegram не підтвердив відправку: {label}. Причина: {reason}. Повтор {attempt_number}/{retries + 1} через {delay:g} с",
                 )
                 await asyncio.sleep(delay)
 

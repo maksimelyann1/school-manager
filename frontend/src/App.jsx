@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, NavLink, useNavigate } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import ParentsReport from './pages/ParentsReport'
 import SendMessage from './pages/SendMessage'
@@ -13,6 +13,8 @@ import AppContextMenu from './components/AppContextMenu'
 import TelegramAuthPanel from './components/TelegramAuthPanel'
 import logoUrl from './assets/logo.png'
 import { API_URL, reportClientError } from './api/client'
+
+const TaskPlanner = lazy(() => import('./pages/TaskPlanner'))
 
 
 // Іконки SVG
@@ -83,6 +85,8 @@ const Icons = {
 
 function AuthGate() {
     const navigate = useNavigate()
+    const { pathname } = useLocation()
+    const isPlanner = pathname === '/tasks' || pathname === '/tasks/widget'
     const [checking, setChecking] = useState(true)
     const [isConnected, setIsConnected] = useState(true)
     const [checkError, setCheckError] = useState('')
@@ -117,6 +121,10 @@ function AuthGate() {
         window.addEventListener('error', handleGlobalError)
         window.addEventListener('unhandledrejection', handleRejection)
         checkTelegramAuth()
+        return () => {
+            window.removeEventListener('error', handleGlobalError)
+            window.removeEventListener('unhandledrejection', handleRejection)
+        }
     }, [])
 
     useEffect(() => {
@@ -126,15 +134,15 @@ function AuthGate() {
                 setIsConnected(nextIsAvailable)
                 if (event.detail.isConnected) {
                     setCheckError('')
-                    if (!isConnected) navigate('/', { replace: true })
+                    if (!isConnected && !isPlanner) navigate('/', { replace: true })
                 }
             }
         }
         window.addEventListener('telegram-auth-status', handleStatus)
         return () => window.removeEventListener('telegram-auth-status', handleStatus)
-    }, [isConnected, navigate])
+    }, [isConnected, isPlanner, navigate])
 
-    if (checking || isConnected) return null
+    if (checking || isConnected || isPlanner) return null
 
     return (
         <div className="modal-overlay auth-required-overlay" role="presentation">
@@ -165,6 +173,9 @@ function AuthGate() {
                         }
                     }}
                 />
+                <button className="btn btn-secondary" onClick={() => navigate('/tasks')}>
+                    Відкрити задачник без Telegram
+                </button>
             </div>
         </div>
     )
@@ -200,6 +211,12 @@ function App() {
                                 >
                                     {Icons.parentsReport}
                                     <span>Звіт батькам</span>
+                                </NavLink>
+                            </li>
+                            <li>
+                                <NavLink to="/tasks" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                                    {Icons.template}
+                                    <span>Задачник</span>
                                 </NavLink>
                             </li>
                             <li>
@@ -270,6 +287,8 @@ function App() {
                     <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/parents-report" element={<ParentsReport />} />
+                        <Route path="/tasks" element={<Suspense fallback={<p role="status">Завантаження календаря…</p>}><ErrorBoundary><TaskPlanner /></ErrorBoundary></Suspense>} />
+                        <Route path="/tasks/widget" element={<Suspense fallback={<p role="status">Завантаження задач…</p>}><ErrorBoundary><TaskPlanner widget /></ErrorBoundary></Suspense>} />
                         <Route path="/messages" element={<SendMessage />} />
                         <Route path="/auto-messages" element={<AutoMessages />} />
                         <Route path="/settings" element={<Settings />} />

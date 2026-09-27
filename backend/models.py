@@ -241,6 +241,11 @@ class ParentReportRun(Base):
     is_auto = Column(Integer, nullable=False, default=0)
     is_test = Column(Integer, nullable=False, default=0)
     created_at = Column(String, nullable=False)
+    delivery_key = Column(String, nullable=True, unique=True)
+    telegram_random_id = Column(String, nullable=True)
+    telegram_chat_id = Column(String, nullable=True)
+    telegram_message_id = Column(Integer, nullable=True)
+    delivery_checked_at = Column(String, nullable=True)
 
 
 class ParentReportNotification(Base):

@@ -1,7 +1,7 @@
 {
     "name": "school-manager-frontend",
     "private": true,
-    "version": "2.8.0",
+    "version": "2.9.0",
     "type": "module",
     "scripts": {
         "dev": "vite",
@@ -9,7 +9,15 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "@fullcalendar/core": "6.1.21",
+        "@fullcalendar/daygrid": "6.1.21",
+        "@fullcalendar/interaction": "6.1.21",
+        "@fullcalendar/list": "6.1.21",
+        "@fullcalendar/luxon3": "6.1.21",
+        "@fullcalendar/react": "6.1.21",
+        "@fullcalendar/timegrid": "6.1.21",
         "lottie-web": "^5.12.2",
+        "luxon": "3.7.2",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "react-router-dom": "^6.21.0"

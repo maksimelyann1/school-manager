@@ -242,33 +242,29 @@ async def sync_schedule(db: Session = Depends(get_db)):
 
             # Визначаємо поточний або найближчий урок
             target_lesson = None
-            target_index = None
-            for idx, it in enumerate(all_group_lessons, 1):
+            for it in all_group_lessons:
                 if it.get("start"):
                     try:
                         d = datetime.fromisoformat(it["start"]).date()
                         if d == today:
                             target_lesson = it
-                            target_index = idx
                             break
                     except Exception:
                         pass
 
             if not target_lesson:
-                for idx, it in enumerate(all_group_lessons, 1):
+                for it in all_group_lessons:
                     if it.get("start"):
                         try:
                             d = datetime.fromisoformat(it["start"]).date()
                             if d >= today:
                                 target_lesson = it
-                                target_index = idx
                                 break
                         except Exception:
                             pass
 
             if not target_lesson and all_group_lessons:
                 target_lesson = all_group_lessons[-1]
-                target_index = len(all_group_lessons)
 
             if not target_lesson:
                 continue
@@ -276,7 +272,6 @@ async def sync_schedule(db: Session = Depends(get_db)):
             schedule_id = target_lesson.get("id")
             lesson_title = (target_lesson.get("lesson", {}).get("value") or "").strip()
             lesson_code_str = _extract_lesson_code(lesson_title)
-            lesson_count_str = str(target_index)
 
             start_iso = target_lesson.get("start")
             day_str = ""
@@ -319,11 +314,9 @@ async def sync_schedule(db: Session = Depends(get_db)):
                 existing.logika_group_id = g_key
                 existing.logika_schedule_id = schedule_id
 
-                # 2. Оновлюємо код і номер уроку
+                # Номер уроку визначається за кодом у вибраному курсі, а не датою заняття.
                 if lesson_code_str:
                     existing.lesson_code = lesson_code_str
-                if lesson_count_str:
-                    existing.lesson_count = lesson_count_str
 
                 # 3. Базову назву уроку оновлюємо тільки якщо тема ще порожня
                 if lesson_title and not existing.lesson_title:
@@ -372,7 +365,7 @@ async def sync_schedule(db: Session = Depends(get_db)):
                     course="",  # Користувач сам обирає потрібний курс з Google Таблиці
                     lesson_title=lesson_title,
                     lesson_code=lesson_code_str,
-                    lesson_count=lesson_count_str,
+                    lesson_count="",
                     day=day_str,
                     start_time=start_time_str,
                     duration_minutes=duration_min,
