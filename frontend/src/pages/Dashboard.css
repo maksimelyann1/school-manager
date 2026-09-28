@@ -1,0 +1,33 @@
+.dashboard-refresh {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    gap: 8px;
+    min-width: 132px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.81rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.dashboard-refresh:is(:hover, :focus-visible),
+.dashboard-refresh[aria-busy="true"] {
+    background: var(--gradient-primary);
+    color: white;
+    border-color: transparent;
+    box-shadow: var(--shadow-glow);
+}
+.dashboard-refresh:focus-visible { outline: 2px solid var(--primary-light); outline-offset: 2px; }
+.dashboard-refresh:disabled { cursor: wait; }
+.dashboard-refresh .menu-icon { width: 26.125px; height: 26.125px; flex-shrink: 0; }
+@media (prefers-reduced-motion: no-preference) {
+    .dashboard-refresh:is(:hover, :focus-visible) .menu-icon { animation: dashboard-refresh-turn 650ms ease-in-out; }
+    .dashboard-refresh[aria-busy="true"] .menu-icon { animation: dashboard-refresh-turn 850ms linear infinite; }
+}
+@keyframes dashboard-refresh-turn { to { transform: rotate(360deg); } }

@@ -290,7 +290,7 @@ function ParentsReport() {
         if (!['pending', 'schedule', 'runs'].includes(activeTab) || busy || sendingReportIds.size) return
         const controller = new AbortController()
         let refreshing = false
-        const timer = window.setInterval(async () => {
+        const refresh = async () => {
             if (refreshing || document.hidden) return
             refreshing = true
             try {
@@ -308,8 +308,14 @@ function ParentsReport() {
             } finally {
                 refreshing = false
             }
-        }, 15000)
-        return () => { window.clearInterval(timer); controller.abort() }
+        }
+        const timer = window.setInterval(refresh, 15000)
+        window.addEventListener('startup-sync-complete', refresh)
+        return () => {
+            window.clearInterval(timer)
+            window.removeEventListener('startup-sync-complete', refresh)
+            controller.abort()
+        }
     }, [activeTab, busy, sendingReportIds])
 
     useEffect(() => {

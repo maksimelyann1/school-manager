@@ -1,0 +1,65 @@
+.sidebar-toggle { display: none; }
+.sidebar-tooltip { display: none; }
+
+@media (min-width: 769px) {
+    .sidebar.sidebar-collapsible {
+        position: relative;
+        z-index: 10;
+        transition: width 180ms ease, flex-basis 180ms ease;
+    }
+    .sidebar-collapsible .sidebar-nav { overflow-y: auto; overflow-x: hidden; }
+    .sidebar.sidebar--collapsed { width: 72px; flex-basis: 72px; }
+    .sidebar--collapsed .sidebar-logo { justify-content: center; }
+    .sidebar--collapsed .sidebar-logo h1,
+    .sidebar--collapsed .nav-label { display: none; }
+    .sidebar--collapsed .nav-item { justify-content: center; gap: 0; }
+
+    .sidebar-toggle {
+        position: absolute;
+        top: 70px;
+        right: -12px;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        background: var(--bg-card);
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+    .sidebar-toggle:is(:hover, :focus-visible) { background: var(--primary); border-color: var(--primary); color: white; }
+    .sidebar-toggle:focus-visible { outline: 2px solid var(--primary-light); outline-offset: 3px; }
+    .sidebar-toggle:disabled { cursor: wait; }
+
+    .sidebar-tooltip {
+        position: fixed;
+        z-index: 1500;
+        display: block;
+        transform: translateY(-50%);
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-input);
+        color: var(--text-primary);
+        box-shadow: var(--shadow-lg);
+        font-size: 0.81rem;
+        line-height: 1.4;
+        white-space: nowrap;
+    }
+    .sidebar-tooltip::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 100%;
+        width: 14px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sidebar.sidebar-collapsible { transition: none; }
+}

@@ -1,0 +1,72 @@
+.card.integration-status-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    margin-bottom: 0;
+    padding: 10px 14px;
+    border-left: 3px solid var(--status-color);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+}
+
+.integration-status-success {
+    --status-color: var(--success);
+    --status-background: rgba(34, 197, 94, 0.1);
+}
+
+.integration-status-loading {
+    --status-color: var(--secondary);
+    --status-background: rgba(14, 165, 233, 0.1);
+}
+
+.integration-status-error {
+    --status-color: var(--danger);
+    --status-background: rgba(239, 68, 68, 0.1);
+}
+
+.card.integration-status-card:hover { border-left-color: var(--status-color); }
+
+.integration-status-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 7px;
+    border-radius: 8px;
+    color: var(--status-color);
+    background: var(--status-background);
+}
+
+.integration-status-content { min-width: 0; flex: 1; }
+.integration-status-label,
+.integration-status-title,
+.integration-status-detail { display: block; }
+.integration-status-label { color: var(--text-secondary); font-size: 0.78rem; margin-bottom: 2px; }
+.integration-status-title { font-size: 1rem; font-weight: 600; line-height: 1.2; }
+.integration-status-loading .integration-status-title { font-size: 0.95rem; }
+.integration-status-detail {
+    margin-top: 2px;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.integration-status-spinner {
+    width: 20px;
+    height: 20px;
+    box-sizing: border-box;
+    border: 2px solid var(--status-background);
+    border-top-color: currentColor;
+    border-right-color: currentColor;
+    border-radius: 50%;
+    animation: integration-status-spin 0.8s linear infinite;
+}
+
+@keyframes integration-status-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .integration-status-spinner { animation: none; }
+}

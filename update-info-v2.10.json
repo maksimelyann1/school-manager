@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.10",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.10/SchoolManager_Setup.exe",
+  "changelog": "• Програма відкриває збережені дані, поки Telegram і Logika підключаються та синхронізуються у фоні.\n• Додано відображення етапів запуску й стану підключення сервісів; поліпшено обробку тайм-аутів і завершення фонових операцій.\n• Оновлено бічне меню та іконки: меню можна згортати, а вибраний стан зберігається після перезапуску.\n• Оновлено головну сторінку та розміри вікна з урахуванням доступного екрана.\n• Синхронізація Logika завантажує всі сторінки розкладу, групові й індивідуальні заняття зі статусами «Активна» та «Йде набір».\n• Додано захист від одночасних синхронізацій Logika та докладніші записи про результати в журналі.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.10/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.10/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

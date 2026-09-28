@@ -1,7 +1,14 @@
 # Моделі бази даних
-from sqlalchemy import Column, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from database import Base
+
+
+class InterfaceSettings(Base):
+    __tablename__ = "interface_settings"
+
+    id = Column(Integer, primary_key=True)
+    sidebar_collapsed = Column(Boolean, nullable=False, default=False)
 
 
 class BotSettings(Base):

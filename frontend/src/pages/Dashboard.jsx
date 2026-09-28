@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { API_URL } from '../api/client'
+import IntegrationStatusCard from '../components/IntegrationStatusCard'
+import SidebarIcon from '../components/SidebarIcon'
+import './Dashboard.css'
 
 
 export default function Dashboard() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
+    const [refreshing, setRefreshing] = useState(false);
+    const refreshInFlight = useRef(false);
 
     // Стан системи оновлень
     const [versionInfo, setVersionInfo] = useState(null);
@@ -38,6 +43,18 @@ export default function Dashboard() {
             setVersionInfo(data);
         } catch (error) {
             console.error("Помилка перевірки версії:", error);
+        }
+    };
+
+    const refreshDashboard = async () => {
+        if (refreshInFlight.current) return;
+        refreshInFlight.current = true;
+        setRefreshing(true);
+        try {
+            await Promise.all([fetchStats(), fetchVersion()]);
+        } finally {
+            refreshInFlight.current = false;
+            setRefreshing(false);
         }
     };
 
@@ -104,7 +121,9 @@ export default function Dashboard() {
         fetchStats();
         fetchVersion();
         const interval = setInterval(fetchStats, 30000);
+        window.addEventListener('startup-sync-complete', fetchStats);
         return () => {
+            window.removeEventListener('startup-sync-complete', fetchStats);
             clearInterval(interval);
             if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
         };
@@ -247,110 +266,27 @@ export default function Dashboard() {
                     <h2>Головна панель</h2>
                     <p>Огляд роботи додатку та найближчі завдання</p>
                 </div>
-                <button className="btn btn-secondary btn-sm" onClick={() => { fetchStats(); fetchVersion(); }}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '8px' }}>
-                        <polyline points="23 4 23 10 17 10"></polyline>
-                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                    </svg>
-                    Оновити
+                <button className="dashboard-refresh" onClick={refreshDashboard}
+                    disabled={refreshing} aria-busy={refreshing}>
+                    <SidebarIcon name="refresh" />
+                    <span>{refreshing ? 'Оновлення…' : 'Оновити'}</span>
                 </button>
             </div>
 
             {/* ===== Картки статистики (компактний розмір) ===== */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px' }}>
 
-                {/* Статус Telegram */}
-                <div
-                    className="card dashboard-action-card"
-                    role="button"
-                    tabIndex={0}
+                <IntegrationStatusCard
+                    service="telegram"
+                    connected={stats?.is_connected}
                     onClick={() => openSettingsFocus('telegram')}
-                    onKeyDown={(event) => handleActionCardKeyDown(event, 'telegram')}
-                    style={{
-                        marginBottom: 0,
-                        padding: '10px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        borderLeft: `3px solid ${stats?.is_connected ? 'var(--success)' : 'var(--danger)'}`,
-                        borderRadius: '10px'
-                    }}
-                >
-                    <div style={{
-                        padding: '7px',
-                        background: stats?.is_connected ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                        borderRadius: '8px',
-                        color: stats?.is_connected ? 'var(--success)' : 'var(--danger)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                    }}>
-                        {stats?.is_connected ? (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                            </svg>
-                        ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <line x1="12" y1="8" x2="12" y2="12"></line>
-                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                            </svg>
-                        )}
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '0 0 2px' }}>Статус Telegram</p>
-                        <h3 style={{ fontSize: '1.05rem', fontWeight: 600, margin: 0, lineHeight: 1.2 }}>
-                            {stats?.is_connected ? 'Підключено' : 'Відключено'}
-                        </h3>
-                    </div>
-                </div>
-
-                {/* Статус Logika */}
-                <div
-                    className="card dashboard-action-card"
-                    role="button"
-                    tabIndex={0}
+                />
+                <IntegrationStatusCard
+                    service="logika"
+                    connected={stats?.logika_connected}
+                    name={stats?.logika_teacher_name}
                     onClick={() => openSettingsFocus('logika')}
-                    onKeyDown={(event) => handleActionCardKeyDown(event, 'logika')}
-                    style={{
-                        marginBottom: 0,
-                        padding: '10px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        borderLeft: `3px solid ${stats?.logika_connected ? 'var(--success)' : 'var(--danger)'}`,
-                        borderRadius: '10px'
-                    }}
-                >
-                    <div style={{
-                        padding: '7px',
-                        background: stats?.logika_connected ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                        borderRadius: '8px',
-                        color: stats?.logika_connected ? 'var(--success)' : 'var(--danger)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                    }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M22 10v6M2 10l10-5 10 5-10 5z"></path>
-                            <path d="M6 12v5c3 3 9 3 12 0v-5"></path>
-                        </svg>
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '0 0 2px' }}>Статус Logika</p>
-                        <h3 style={{ fontSize: '1.05rem', fontWeight: 600, margin: 0, lineHeight: 1.2 }}>
-                            {stats?.logika_connected ? 'Підключено' : 'Відключено'}
-                        </h3>
-                        {stats?.logika_teacher_name ? (
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', margin: '1px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {stats.logika_teacher_name}
-                            </p>
-                        ) : null}
-                    </div>
-                </div>
+                />
 
                 {/* Заплановано на сьогодні */}
                 <div

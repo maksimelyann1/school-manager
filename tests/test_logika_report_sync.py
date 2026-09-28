@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -30,7 +31,7 @@ MATERIALS = {COURSE: [
 def platform_lesson(day=1, code="М2У5", schedule_id=101, hour=14, **changes):
     item = {
         "id": schedule_id, "group": {"key": 77, "value": "Нова назва у Logika"},
-        "teacher": {"key": 22}, "groupStatus": "ACTIVE", "lessonStatus": "FINISH",
+        "teacher": {"key": 22}, "groupStatus": "ACTIVE", "contentType": "GROUP", "lessonStatus": "FINISH",
         "start": f"2026-09-{day:02d}T{hour:02d}:00:00+03:00", "duration": 5400,
         "lesson": {"value": f"{code} Тема з платформи"},
     }
@@ -253,7 +254,96 @@ class LogikaReportSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.lesson.lesson_count, "7")
 
 
+    async def test_sync_filters_status_type_and_teacher_without_deleting_saved_rows(self):
+        items = []
+        for index, (status, kind, teacher) in enumerate([
+            ("ACTIVE", "GROUP", 22), ("ACTIVE", "INDIVIDUAL", 22),
+            ("RECRUITING", "GROUP", 22), ("RECRUITING", "INDIVIDUAL", 22),
+            ("ACTIVE", "MASTER_CLASS", 22), ("RECRUITING", "MASTER_CLASS", 22),
+            ("FINISH", "GROUP", 22), ("ACTIVE", "INTENSIVE", 22),
+            ("ACTIVE", None, 22), ("RECRUITING", "GROUP", 23),
+        ], start=200):
+            items.append(platform_lesson(schedule_id=index, group={"key": index, "value": f"Group {index}"},
+                                         groupStatus=status, contentType=kind, teacher={"key": teacher}))
+        self.client.get_schedule.return_value = items
+        self.client.get_group_schedule.side_effect = lambda key: [next(x for x in items if x["group"]["key"] == key)]
+        result = await logika.sync_schedule(self.db)
+        self.assertEqual((result["added"], result["total"]), (4, 4))
+        self.assertEqual({x.logika_group_id for x in self.db.query(ParentReportLesson)}, {77, 200, 201, 202, 203})
+        self.assertEqual(self.lesson.course, COURSE)
+        self.client.get_schedule.assert_called_once_with(page=0, size=100, teacher_id=22,
+            status="ACTIVE,RECRUITING", active=None, is_start_day_now=False,
+            content_types="GROUP,INDIVIDUAL", all_pages=True)
+
+    async def test_slow_network_does_not_block_event_loop_and_cancellation_keeps_database(self):
+        entered, release = threading.Event(), threading.Event()
+        def slow_schedule(**kwargs):
+            entered.set()
+            release.wait(2)
+            return [platform_lesson()]
+        self.client.get_schedule.side_effect = slow_schedule
+        work = asyncio.create_task(logika.sync_schedule(self.db))
+        try:
+            self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+            self.assertFalse(work.done())
+            work.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await work
+            self.client.cancel.assert_called_once()
+            self.assertEqual(self.db.query(ParentReportLesson).count(), 1)
+            self.client.get_group_schedule.assert_not_called()
+        finally:
+            release.set()
+
+    async def test_authentication_and_group_requests_run_off_event_loop(self):
+        main_thread = threading.get_ident()
+        def network(result):
+            def call(*args, **kwargs):
+                self.assertNotEqual(threading.get_ident(), main_thread)
+                return result
+            return call
+        self.client.access_token = None
+        self.client.authenticate.side_effect = network({"access_token": "new"})
+        self.client.get_schedule.side_effect = network([platform_lesson()])
+        self.client.get_group_schedule.side_effect = network([platform_lesson()])
+        self.client.get_absent_students.side_effect = network([])
+        await logika.sync_schedule(self.db)
+        self.client.authenticate.assert_called_once()
+
+
 class LogikaPaginationTests(unittest.TestCase):
+    def test_discovery_reads_all_pages_even_when_server_caps_page_size(self):
+        client = LogikaClient(access_token="fake")
+        pages = [SimpleNamespace(status_code=200, json=lambda: {
+            "content": [{"id": 1}], "last": False, "totalPages": 2}),
+            SimpleNamespace(status_code=200, json=lambda: {
+                "content": [{"id": 2}], "last": True, "totalPages": 2})]
+        with patch.object(client, "_authorized_request", side_effect=pages) as request:
+            result = client.get_schedule(status="ACTIVE,RECRUITING", content_types="GROUP,INDIVIDUAL",
+                                         active=None, is_start_day_now=False, all_pages=True)
+        self.assertEqual([x["id"] for x in result], [1, 2])
+        self.assertEqual([c.kwargs["params"]["page"] for c in request.call_args_list], [0, 1])
+        params = request.call_args_list[0].kwargs["params"]
+        self.assertEqual(params["status"], "ACTIVE,RECRUITING")
+        self.assertEqual(params["type"], "GROUP,INDIVIDUAL")
+        self.assertNotIn("active", params)
+
+    def test_discovery_repeated_page_fails(self):
+        client = LogikaClient(access_token="fake")
+        response = SimpleNamespace(status_code=200, json=lambda: {"content": [{"id": 1}], "last": False})
+        with patch.object(client, "_authorized_request", return_value=response) as request:
+            with self.assertRaisesRegex(Exception, "повторює сторінку"):
+                client.get_schedule(all_pages=True)
+        self.assertEqual(request.call_count, 2)
+
+    def test_discovery_later_page_failure_does_not_return_partial_results(self):
+        client = LogikaClient(access_token="fake")
+        responses = [SimpleNamespace(status_code=200, json=lambda: {"content": [{"id": 1}], "last": False}),
+                     SimpleNamespace(status_code=503, text="Unavailable")]
+        with patch.object(client, "_authorized_request", side_effect=responses):
+            with self.assertRaisesRegex(Exception, "HTTP 503"):
+                client.get_schedule(all_pages=True)
+
     def test_reads_later_pages_for_finished_lesson(self):
         client = LogikaClient(access_token="fake")
         pages = [

@@ -1,5 +1,5 @@
 # Pydantic схеми для валідації даних
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from typing import Optional, List
 
 
@@ -53,6 +53,10 @@ class GroupResponse(GroupBase):
 
 
 # === Схеми для налаштувань ===
+class InterfaceSettingsState(BaseModel):
+    sidebar_collapsed: StrictBool
+
+
 class BotSettingsBase(BaseModel):
     """Базова схема налаштувань"""
     token: Optional[str] = None

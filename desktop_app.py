@@ -52,6 +52,8 @@ BACKEND_DIR = os.path.join(BASE_DIR, "backend")
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
+from startup_state import startup_state
+
 
 def _user_data_dir() -> str:
     if sys.platform == "win32":
@@ -82,10 +84,10 @@ if not getattr(sys, "frozen", False):
 START_IN_TRAY_ARGS = {"--start-in-tray", "--tray", "--minimized"}
 SMOKE_TEST_ARGS = {"--smoke-test", "--ci-smoke-test"}
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-MAIN_WINDOW_WIDTH = 1280
-MAIN_WINDOW_HEIGHT = 960
-MIN_WINDOW_WIDTH = 900
-MIN_WINDOW_HEIGHT = 700
+MAIN_WINDOW_WIDTH = 1536
+MAIN_WINDOW_HEIGHT = 1152
+MIN_WINDOW_WIDTH = 1080
+MIN_WINDOW_HEIGHT = 750
 TITLE_BAR_COLOR = "#1E293B"
 TITLE_BAR_BORDER_COLOR = "#334155"
 TITLE_BAR_TEXT_COLOR = "#F8FAFC"
@@ -434,9 +436,9 @@ def _loading_html(error_message: str | None = None) -> str:
     <button class="close" type="button" title="Закрити" aria-label="Закрити" onmousedown="event.stopPropagation()" onclick="closeApp(event)"></button>
     {logo_markup}
     <h1>School Manager</h1>
-    <p id="status" class="status">Запускаємо програму та готуємо локальний сервер...</p>
+    <p id="status" class="status" role="status" aria-live="polite">Завантажуємо компоненти програми…</p>
     <div class="bar" aria-hidden="true"></div>
-    <div class="hint">Перший запуск на різних ПК може тривати від 5 до 30 секунд.</div>
+    <div class="hint">Telegram і Logika оновлюються у фоні.<br>Збережені дані доступні одразу після відкриття.</div>
     {error_block}
   </main>
 </body>
@@ -449,12 +451,13 @@ def _loading_target() -> webview.Window | None:
 
 def _set_loading_status(message: str):
     target = _loading_target()
-    if not target:
-        return
+    if not target or not target.events.loaded.is_set():
+        return False
     try:
         target.evaluate_js(f"window.setStatus && window.setStatus({json.dumps(message)});")
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _destroy_window_safely(window: webview.Window | None):
@@ -472,10 +475,15 @@ def _get_main_window_size() -> tuple[int, int]:
 
     try:
         screens = getattr(webview, "screens", [])
-        screen_width = int(screens[0].width) if screens else MAIN_WINDOW_WIDTH
-        screen_height = int(screens[0].height) if screens else MAIN_WINDOW_HEIGHT
-        width = min(MAIN_WINDOW_WIDTH, max(MIN_WINDOW_WIDTH, screen_width - 80))
-        height = min(MAIN_WINDOW_HEIGHT, max(MIN_WINDOW_HEIGHT, screen_height - 80))
+        if not screens:
+            return MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT
+        screen_width = int(screens[0].width)
+        screen_height = int(screens[0].height)
+        available_width = max(1, screen_width - 80)
+        available_height = max(1, screen_height - 80)
+        compact = available_width < MAIN_WINDOW_WIDTH or available_height < MAIN_WINDOW_HEIGHT
+        width = min(MAIN_WINDOW_WIDTH, available_width)
+        height = min(MIN_WINDOW_HEIGHT if compact else MAIN_WINDOW_HEIGHT, available_height)
         return width, height
     except Exception as error:
         log_launcher(f"Main window size fallback: {error}")
@@ -825,8 +833,8 @@ class DesktopApi:
             return self.get_window_state()
 
         try:
-            width = max(MIN_WINDOW_WIDTH, int(width))
-            height = max(MIN_WINDOW_HEIGHT, int(height))
+            width = max(_window.min_size[0], int(width))
+            height = max(_window.min_size[1], int(height))
             x = int(x)
             y = int(y)
 
@@ -890,6 +898,7 @@ def run_backend():
     global _backend_server, _backend_loop
 
     log_launcher("Backend thread starting")
+    startup_state.set("server", "running", "Перевіряємо попередній запуск програми…")
     kill_process_on_port(8001)
     log_launcher(f"Using backend dir: {BACKEND_DIR}")
 
@@ -900,6 +909,7 @@ def run_backend():
         _backend_loop = loop
         asyncio.set_event_loop(loop)
 
+        startup_state.set("server", "running", "Завантажуємо компоненти програми…")
         import uvicorn
         from main import app  # noqa
 
@@ -921,6 +931,7 @@ def run_backend():
         import traceback
 
         error_msg = f"[Launcher] Backend error: {error}\n{traceback.format_exc()}"
+        startup_state.set("server", "error", "Не вдалося запустити локальний сервер")
         log_launcher(error_msg)
         try:
             with open(ERROR_LOG, "w", encoding="utf-8") as error_file:
@@ -1130,6 +1141,7 @@ def _create_main_window(url: str, start_in_tray: bool):
     global _window, _splash_window
 
     if _window:
+        _window.events.loaded += _on_interface_loaded
         _window.load_url(url)
         if start_in_tray:
             _window.hide()
@@ -1140,20 +1152,30 @@ def _create_main_window(url: str, start_in_tray: bool):
         main_width, main_height = _get_main_window_size()
         _window = webview.create_window(
             "School Manager",
-            url=url,
+            html=_loading_html(),
             width=main_width,
             height=main_height,
-            min_size=(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT),
+            min_size=(min(MIN_WINDOW_WIDTH, main_width), min(MIN_WINDOW_HEIGHT, main_height)),
             hidden=start_in_tray,
             js_api=DesktopApi(),
             background_color="#111827",
         )
         _attach_main_window_events(_window)
+        _window.events.loaded += _on_interface_loaded
+        _window.load_url(url)
         _style_native_title_bar_async(_window)
 
-    if _splash_window:
-        _destroy_window_safely(_splash_window)
-        _splash_window = None
+def _on_interface_loaded():
+    global _splash_window
+    try:
+        if not _window or not (_window.get_current_url() or "").startswith("http://"):
+            return  # The initial loading HTML is not the application yet.
+        log_launcher("Interface loaded")
+        if _splash_window:
+            _destroy_window_safely(_splash_window)
+            _splash_window = None
+    except Exception as error:
+        log_launcher(f"Interface readiness check failed: {error}")
 
 
 def _show_startup_error(message: str):
@@ -1165,23 +1187,32 @@ def _show_startup_error(message: str):
 def _startup_flow(start_in_tray: bool):
     global _app_url
 
-    _set_loading_status("Запускаємо локальний сервер програми...")
+    startup_state.reset()
+    _set_loading_status("Завантажуємо компоненти програми…")
     backend_thread = threading.Thread(target=run_backend, daemon=True)
     backend_thread.start()
-    _server_started.wait(timeout=3)
-
-    for attempt in range(35):
-        _app_url = find_active_url()
+    deadline = time.monotonic() + 60
+    previous_message = None
+    while time.monotonic() < deadline and not _shutdown_requested.is_set():
+        progress = startup_state.snapshot()
+        message = progress["steps"]["server"]["message"]
+        if message != previous_message:
+            if _set_loading_status(message):
+                log_launcher(f"Startup: {message}")
+                previous_message = message
+        if progress["steps"]["server"]["state"] == "error":
+            break
+        _app_url = find_active_url() if progress["ready"] else None
         if _app_url:
             log_launcher(f"Window URL: {_app_url}")
-            _set_loading_status("Готово. Відкриваємо програму...")
-            time.sleep(0.25)
+            _set_loading_status("Завантажуємо інтерфейс. Підключення сервісів триває у фоні…")
             _create_main_window(_app_url, start_in_tray)
             return
 
-        if attempt in {4, 12, 22}:
-            _set_loading_status("Ще трохи: сервер стартує, перевіряємо готовність...")
-        time.sleep(1)
+        _shutdown_requested.wait(0.15)
+
+    if _shutdown_requested.is_set():
+        return
 
     log_launcher("Backend did not become ready in time")
     _show_startup_error(
@@ -1207,7 +1238,7 @@ def _create_initial_window(start_in_tray: bool):
             html=_loading_html(),
             width=main_width,
             height=main_height,
-            min_size=(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT),
+            min_size=(min(MIN_WINDOW_WIDTH, main_width), min(MIN_WINDOW_HEIGHT, main_height)),
             hidden=True,
             js_api=DesktopApi(),
             background_color="#111827",

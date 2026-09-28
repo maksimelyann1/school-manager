@@ -102,7 +102,7 @@ button {
   flex: 0 0 var(--sidebar-width);
   background: var(--bg-card);
   border-right: 1px solid var(--border);
-  padding: 22px 12px;
+  padding: 22px 8px;
   display: flex;
   flex-direction: column;
 }
@@ -151,7 +151,7 @@ button {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .nav-menu-bottom {
@@ -175,7 +175,7 @@ button {
   text-decoration: none;
   transition: all 0.2s ease;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.81rem;
 }
 
 .nav-item:hover {
@@ -190,8 +190,8 @@ button {
 }
 
 .nav-item svg {
-  width: 19px;
-  height: 19px;
+  width: 26.125px;
+  height: 26.125px;
   flex: 0 0 auto;
 }
 
@@ -4652,19 +4652,19 @@ button {
     gap: 4px;
     padding: 8px 6px;
     border-radius: 0;
-    font-size: 0.7rem;
+    font-size: 0.63rem;
     flex: 1;
     justify-content: center;
     text-align: center;
   }
 
   .nav-item svg {
-    width: 22px;
-    height: 22px;
+    width: 30.25px;
+    height: 30.25px;
   }
 
   .nav-item span {
-    font-size: 0.65rem;
+    font-size: 0.585rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -5023,7 +5023,7 @@ button {
   }
 
   .nav-item span {
-    font-size: 0.6rem;
+    font-size: 0.54rem;
     max-width: 60px;
   }
 

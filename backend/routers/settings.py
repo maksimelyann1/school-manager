@@ -1,12 +1,15 @@
 # API для налаштувань та авторизації Pyrogram
 import asyncio
+from time import monotonic
+from startup_state import startup_state
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.sqlite import insert
 
 from database import SessionLocal, get_db
-from models import BotSettings
-from schemas import BotSettingsCreate, BotSettingsResponse, QRLoginRequest, SendCodeRequest, VerifyCodeRequest, Verify2FARequest
+from models import BotSettings, InterfaceSettings
+from schemas import BotSettingsCreate, BotSettingsResponse, InterfaceSettingsState, QRLoginRequest, SendCodeRequest, VerifyCodeRequest, Verify2FARequest
 from pyrogram_client import pyrogram_manager
 from logger import log_event
 from routers.groups import sync_telegram_groups
@@ -21,6 +24,55 @@ from telegram_credentials import (
 
 router = APIRouter(prefix="/settings", tags=["Налаштування"])
 _auto_group_sync_lock = asyncio.Lock()
+_session_restore_task = None
+_last_restore_attempt = float("-inf")
+
+
+@router.get("/interface", response_model=InterfaceSettingsState)
+def get_interface_settings(db: Session = Depends(get_db)):
+    settings = db.get(InterfaceSettings, 1)
+    return {"sidebar_collapsed": bool(settings.sidebar_collapsed) if settings else False}
+
+
+@router.put("/interface", response_model=InterfaceSettingsState)
+def save_interface_settings(settings: InterfaceSettingsState, db: Session = Depends(get_db)):
+    statement = insert(InterfaceSettings).values(id=1, sidebar_collapsed=settings.sidebar_collapsed)
+    db.execute(statement.on_conflict_do_update(
+        index_elements=[InterfaceSettings.id],
+        set_={"sidebar_collapsed": settings.sidebar_collapsed},
+    ))
+    db.commit()
+    return settings
+
+
+async def stop_session_restore():
+    global _session_restore_task
+    if _session_restore_task:
+        _session_restore_task.cancel()
+        await asyncio.gather(_session_restore_task, return_exceptions=True)
+        _session_restore_task = None
+
+
+def _schedule_session_restore():
+    global _session_restore_task, _last_restore_attempt
+    if startup_state.snapshot()["steps"]["telegram"]["state"] in {"pending", "running"}:
+        return
+    if pyrogram_manager.is_connected or pyrogram_manager.manually_disconnected or not pyrogram_manager.has_session():
+        return
+    if (_session_restore_task and not _session_restore_task.done()) or monotonic() - _last_restore_attempt < 30:
+        return
+
+    async def restore():
+        db = SessionLocal()
+        try:
+            await asyncio.wait_for(_connect_saved_session_if_possible(db.query(BotSettings).first()), 60)
+        except asyncio.TimeoutError:
+            log_event("WARNING", "Pyrogram", "Перевищено час відновлення Telegram-сесії")
+        finally:
+            db.close()
+
+    _last_restore_attempt = monotonic()
+    _session_restore_task = asyncio.create_task(restore())
 
 
 async def _sync_groups_after_auth():
@@ -224,7 +276,7 @@ async def get_bot_settings(db: Session = Depends(get_db)):
     """Отримати налаштування + статус підключення Pyrogram"""
     settings = db.query(BotSettings).first()
     _clear_redundant_builtin_credentials(db, settings)
-    await _connect_saved_session_if_possible(settings)
+    _schedule_session_restore()
     if settings:
         db.refresh(settings)
     

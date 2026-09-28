@@ -1,0 +1,110 @@
+.sidebar-nav .menu-icon {
+    overflow: visible;
+}
+
+.sidebar-nav .menu-icon-surface {
+    fill: currentColor;
+    fill-opacity: .09;
+    stroke: none;
+}
+
+.sidebar-nav .menu-icon :is(.menu-icon-drawing, .menu-icon-plane, .menu-icon-check, .menu-icon-front-sheet, .menu-icon-back-sheet, .menu-icon-gear, .menu-icon-question) {
+    transform-box: view-box;
+    transform-origin: 12px 12px;
+}
+
+.sidebar-nav .menu-icon-hands {
+    transform-box: view-box;
+    transform-origin: 16px 16px;
+}
+
+.sidebar-nav .nav-item:focus-visible {
+    outline: 2px solid var(--primary-light);
+    outline-offset: 2px;
+}
+
+/* One short pass on hover/focus; no timers or animation while idle. */
+@media (prefers-reduced-motion: no-preference) {
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-drawing {
+        animation: menu-home-welcome 600ms ease-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-plane {
+        animation: menu-plane-send 700ms ease-in-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-check {
+        animation: menu-check-confirm 600ms ease-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-dot {
+        animation: menu-message-dot 480ms ease-in-out;
+        animation-delay: var(--menu-step, 0ms);
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-hands {
+        animation: menu-clock-tick 800ms ease-in-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-front-sheet {
+        animation: menu-template-front 650ms ease-in-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-back-sheet {
+        animation: menu-template-back 650ms ease-in-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-entry {
+        animation: menu-journal-entry 500ms ease-out;
+        animation-delay: var(--menu-step, 0ms);
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-gear {
+        animation: menu-gear-turn 800ms ease-in-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-question {
+        animation: menu-help-tilt 650ms ease-in-out;
+    }
+}
+
+.sidebar-nav .menu-icon-step-2 { --menu-step: 80ms; }
+.sidebar-nav .menu-icon-step-3 { --menu-step: 160ms; }
+
+@keyframes menu-home-welcome {
+    0%, 100% { transform: translateY(0) scale(1); }
+    35% { transform: translateY(-1.2px) scale(1.05); }
+    65% { transform: translateY(.5px) scale(.98); }
+}
+@keyframes menu-plane-send {
+    0%, 100% { transform: translate(0, 0) rotate(0); }
+    25% { transform: translate(-.8px, .5px) rotate(-6deg); }
+    60% { transform: translate(1.5px, -1px) rotate(-10deg); }
+}
+@keyframes menu-check-confirm {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    30% { transform: scale(.8); opacity: .45; }
+    65% { transform: scale(1.14); opacity: 1; }
+}
+@keyframes menu-message-dot {
+    0%, 100% { transform: translateY(0); opacity: 1; }
+    45% { transform: translateY(-2px); opacity: .5; }
+}
+@keyframes menu-clock-tick {
+    0% { transform: rotate(0); }
+    20% { transform: rotate(-15deg); }
+    100% { transform: rotate(360deg); }
+}
+@keyframes menu-template-front {
+    0%, 100% { transform: translate(0, 0) rotate(0); }
+    45% { transform: translate(-.8px, .8px) rotate(-5deg); }
+}
+@keyframes menu-template-back {
+    0%, 100% { transform: translate(0, 0); }
+    45% { transform: translate(.8px, -.8px); }
+}
+@keyframes menu-journal-entry {
+    0%, 100% { transform: translateX(0); opacity: 1; }
+    25% { transform: translateX(-1.5px); opacity: .25; }
+    65% { transform: translateX(.4px); opacity: 1; }
+}
+@keyframes menu-gear-turn {
+    0%, 100% { transform: rotate(0); }
+    55% { transform: rotate(60deg); }
+}
+@keyframes menu-help-tilt {
+    0%, 100% { transform: rotate(0) translateY(0); }
+    35% { transform: rotate(-12deg) translateY(-.4px); }
+    65% { transform: rotate(7deg) translateY(0); }
+}

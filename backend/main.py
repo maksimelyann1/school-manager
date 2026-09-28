@@ -6,6 +6,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import HTTPException
 import os
+import asyncio
+from startup_state import startup_state
 
 from database import engine, Base, SessionLocal, ensure_schema_migrations
 from models import Group, BotSettings, AutoMessage, Template, Category, LogikaSettings, ParentReportLesson
@@ -29,122 +31,122 @@ ALLOWED_LOCAL_ORIGINS = {
 }
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Виконується при старті та зупинці додатку"""
-    # Створюємо таблиці в базі даних
-    Base.metadata.create_all(bind=engine)
-    ensure_schema_migrations()
-    from services.planner.schema import ensure_planner_migrations
-    ensure_planner_migrations(engine)
-    
-    # Запускаємо локальний планувальник
-    try:
-        auto_messages.scheduler.start()
-    except Exception:
-        pass  # Може бути вже запущений при reload
-    parents_report.init_scheduler(auto_messages.scheduler)
-    from services.planner.reminders import init_scheduler as init_planner_scheduler
-    init_planner_scheduler(auto_messages.scheduler)
-    
-    # Ініціалізуємо заплановані повідомлення в локальний планувальник
+async def _startup_telegram():
+    from logger import log_event
     db = SessionLocal()
     try:
-        auto_messages.init_scheduler(db)
-        
-        # Спробуємо підключити Pyrogram якщо є збережена сесія
         db_settings = db.query(BotSettings).first()
         if db_settings and stored_credentials_match_default(db_settings):
             db_settings.api_id = None
             db_settings.api_hash = None
             db.commit()
-            db.refresh(db_settings)
-        try:
-            credentials = get_effective_credentials(db_settings)
-        except Exception as e:
-            credentials = None
-            print(f"[Main] Некоректні Telegram credentials: {e}")
-
-        if credentials:
-            try:
-                connected = await pyrogram_manager.connect_with_session(
-                    credentials.api_id,
-                    credentials.api_hash
-                )
-                if connected:
-                    # Плануємо відкладені повідомлення через Telegram
-                    await auto_messages.schedule_telegram_messages()
-                    stickers.schedule_sticker_cache_warmup(reason="startup")
-
-                    # Автоматична синхронізація груп Telegram при старті (оновлює назви та додає нові)
-                    async def _bg_startup_sync_groups():
-                        import asyncio
-                        await asyncio.sleep(2)  # Невелика пауза після старту
-                        sync_db = SessionLocal()
-                        try:
-                            from logger import log_event
-                            res = await groups.sync_telegram_groups(sync_db)
-                            if res.get('added_count', 0) > 0 or res.get('updated_count', 0) > 0:
-                                log_event("INFO", "Groups", f"Автосинхронізація груп Telegram: додано {res.get('added_count', 0)}, оновлено назв {res.get('updated_count', 0)}")
-                        except Exception as sync_err:
-                            print(f"[Main] Помилка фонової синхронізації Telegram груп: {sync_err}")
-                        finally:
-                            sync_db.close()
-
-                    import asyncio
-                    asyncio.create_task(_bg_startup_sync_groups())
-                else:
-                    print("[Main] Pyrogram сесія не знайдена або недійсна. Потрібна авторизація.")
-            except Exception as e:
-                print(f"[Main] Помилка підключення Pyrogram: {e}")
-        else:
-            print("[Main] API credentials не налаштовані. Перейдіть в Налаштування.")
-
-        # Автоматична синхронізація розкладу Logika при старті, якщо увімкнено
-        try:
-            l_settings = db.query(LogikaSettings).first()
-            if l_settings and l_settings.login and l_settings.password and l_settings.auto_sync_enabled:
-                import asyncio
-                from routers.logika import sync_schedule
-
-                async def _bg_sync():
-                    sync_db = SessionLocal()
-                    try:
-                        await sync_schedule(db=sync_db)
-                    except Exception as err:
-                        print(f"[Main] Помилка авто-синхронізації Logika: {err}")
-                    finally:
-                        sync_db.close()
-
-                asyncio.create_task(_bg_sync())
-        except Exception as e:
-            print(f"[Main] Помилка перевірки автосинхронізації Logika: {e}")
+        credentials = get_effective_credentials(db_settings)
     finally:
         db.close()
-    
-    yield
-    await planner_google.oauth.stop()
-    
-    # Зупиняємо планувальник
+    if not credentials or not pyrogram_manager.has_session():
+        startup_state.set("telegram", "skipped", "Telegram: потрібен вхід у налаштуваннях")
+        return
+    startup_state.set("telegram", "running", "Підключаємо Telegram…")
+    connected = await pyrogram_manager.connect_with_session(credentials.api_id, credentials.api_hash)
+    if not connected:
+        raise RuntimeError("Не вдалося підключити збережену Telegram-сесію")
+    startup_state.set("telegram", "running", "Відновлюємо заплановані повідомлення…")
+    await auto_messages.schedule_telegram_messages()
+    stickers.schedule_sticker_cache_warmup(reason="startup")
+    startup_state.set("telegram", "running", "Telegram підключено. Оновлюємо групи…")
+    sync_db = SessionLocal()
     try:
-        auto_messages.scheduler.shutdown()
+        result = await groups.sync_telegram_groups(sync_db)
+    finally:
+        sync_db.close()
+    log_event("INFO", "Groups", f"Автосинхронізація груп Telegram: додано {result.get('added_count', 0)}, оновлено назв {result.get('updated_count', 0)}")
+    startup_state.set("telegram", "done", "Telegram підключено, групи оновлено")
+
+
+async def _startup_logika():
+    db = SessionLocal()
+    try:
+        config = db.query(LogikaSettings).first()
+        if not config or not config.login or not config.password:
+            startup_state.set("logika", "skipped", "Logika не підключена")
+            return
+        if not config.auto_sync_enabled:
+            startup_state.set("logika", "skipped", "Автосинхронізація Logika вимкнена")
+            return
+        startup_state.set("logika", "running", "Синхронізуємо групи та розклад Logika…")
+        result = await logika.sync_schedule(db=db)
+        startup_state.set("logika", "done", f"Logika: оновлено {result['updated']}, додано {result['added']} груп")
+    finally:
+        db.close()
+
+
+async def _run_startup_service(key, work, timeout):
+    from logger import log_event
+    try:
+        await asyncio.wait_for(work(), timeout=timeout)
+    except asyncio.CancelledError:
+        startup_state.set(key, "skipped", "Оновлення зупинено")
+        raise
+    except Exception as error:
+        name = "Telegram" if key == "telegram" else "Logika"
+        startup_state.set(key, "error", f"{name}: не вдалося оновити. Збережені дані доступні; деталі в журналі")
+        log_event("ERROR", name, f"Фоновий запуск: {error or 'перевищено час очікування'}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    startup_state.reset()
+    startup_state.set("server", "running", "Перевіряємо локальну базу даних…")
+    Base.metadata.create_all(bind=engine)
+    ensure_schema_migrations()
+    from services.planner.schema import ensure_planner_migrations
+    ensure_planner_migrations(engine)
+
+    startup_state.set("server", "running", "Готуємо нагадування та локальний розклад…")
+    try:
+        auto_messages.scheduler.start()
     except Exception:
         pass
-    
-    # Від'єднуємо Pyrogram
-    stickers.cancel_sticker_cache_warmup()
+    parents_report.init_scheduler(auto_messages.scheduler)
+    from services.planner.reminders import init_scheduler as init_planner_scheduler
+    init_planner_scheduler(auto_messages.scheduler)
+    db = SessionLocal()
     try:
-        await pyrogram_manager.disconnect()
+        auto_messages.init_scheduler(db)
     finally:
-        # Закриваємо SQLite-пул після планувальників і Telegram-клієнта.
-        engine.dispose()
+        db.close()
+
+    # Network work starts independently; HTTP readiness never waits for integrations.
+    background = [
+        asyncio.create_task(_run_startup_service("telegram", _startup_telegram, 90)),
+        asyncio.create_task(_run_startup_service("logika", _startup_logika, 180)),
+    ]
+    app.state.startup_tasks = background
+    startup_state.set("server", "done", "Локальні дані готові. Завантажуємо інтерфейс…")
+    try:
+        yield
+    finally:
+        for task in background:
+            task.cancel()
+        await asyncio.gather(*background, return_exceptions=True)
+        await settings.stop_session_restore()
+        await planner_google.oauth.stop()
+        try:
+            auto_messages.scheduler.shutdown()
+        except Exception:
+            pass
+        stickers.cancel_sticker_cache_warmup()
+        try:
+            await pyrogram_manager.disconnect()
+        finally:
+            engine.dispose()
 
 
 # Створюємо FastAPI додаток
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.9.0",
+    version="2.10.0",
     lifespan=lifespan
 )
 
@@ -213,6 +215,11 @@ else:
 dist_new = os.path.join(base_path, "frontend", "dist-new")
 FRONTEND_DIST = dist_new if os.path.isdir(dist_new) and os.path.isfile(os.path.join(dist_new, "index.html")) else os.path.join(base_path, "frontend", "dist")
 
+@app.get("/api/startup")
+async def startup_progress():
+    return startup_state.snapshot()
+
+
 @app.get("/health")
 def health_check():
     """Перевірка стану серверу"""
@@ -256,7 +263,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.9 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.10 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }

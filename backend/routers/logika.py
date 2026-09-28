@@ -1,4 +1,5 @@
 import re
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +19,7 @@ from models import (
 from logika_client import LogikaAuthError, LogikaClient
 
 router = APIRouter(prefix="/logika", tags=["Logika Backoffice"])
+_sync_lock = asyncio.Lock()
 
 UKR_DAYS = {0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Нд"}
 
@@ -61,7 +63,7 @@ def get_or_create_logika_settings(db: Session) -> LogikaSettings:
     return settings
 
 
-def get_authenticated_client(settings: LogikaSettings, db: Session) -> LogikaClient:
+def get_authenticated_client(settings: LogikaSettings, db: Session, *, authenticate=True) -> LogikaClient:
     if not settings.login or not settings.password:
         raise HTTPException(status_code=400, detail="Акаунт Logika не налаштований")
 
@@ -74,7 +76,7 @@ def get_authenticated_client(settings: LogikaSettings, db: Session) -> LogikaCli
     )
 
     # Якщо токенів немає або вони застаріли, перевіряємо / оновлюємо
-    if not settings.access_token:
+    if authenticate and not settings.access_token:
         try:
             tokens = client.authenticate()
             settings.access_token = tokens.get("access_token")
@@ -196,29 +198,52 @@ def disconnect_logika(db: Session = Depends(get_db)):
 
 @router.post("/sync-schedule")
 async def sync_schedule(db: Session = Depends(get_db)):
+    async with _sync_lock:
+        return await _sync_schedule(db)
+
+
+async def _sync_schedule(db: Session):
     settings = get_or_create_logika_settings(db)
-    client = get_authenticated_client(settings, db)
+    client = get_authenticated_client(settings, db, authenticate=False)
 
     try:
-        raw_lessons = client.get_schedule(
+        # Only network work uses a worker thread; the database session stays here.
+        if not client.access_token:
+            tokens = await asyncio.to_thread(client.authenticate)
+            settings.access_token = tokens.get("access_token")
+            settings.refresh_token = tokens.get("refresh_token")
+            settings.xsrf_token = tokens.get("xsrf_token")
+            settings.token_expires_at = tokens.get("token_expires_at")
+            db.commit()
+        raw_lessons = await asyncio.to_thread(
+            client.get_schedule,
             page=0,
             size=100,
             teacher_id=settings.teacher_id,
-            status="ACTIVE",
-            active=True,
-            is_start_day_now=True,
+            status="ACTIVE,RECRUITING",
+            active=None,
+            is_start_day_now=False,
+            content_types="GROUP,INDIVIDUAL",
+            all_pages=True,
         )
 
-        # Фільтруємо суворо за викладачем та статусом ACTIVE
+        # Перевіряємо фільтри також у відповіді API.
         groups_map = {}
+        skipped = {"status": 0, "type": 0, "teacher": 0, "group": 0}
         for item in raw_lessons:
-            if item.get("groupStatus") != "ACTIVE":
+            if item.get("groupStatus") not in {"ACTIVE", "RECRUITING"}:
+                skipped["status"] += 1
+                continue
+            if item.get("contentType") not in {"GROUP", "INDIVIDUAL"}:
+                skipped["type"] += 1
                 continue
             if settings.teacher_id and item.get("teacher", {}).get("key") != settings.teacher_id:
+                skipped["teacher"] += 1
                 continue
             g_key = item.get("group", {}).get("key")
             g_name = (item.get("group", {}).get("value") or "").strip()
             if not g_key or not g_name:
+                skipped["group"] += 1
                 continue
             if g_key not in groups_map:
                 groups_map[g_key] = g_name
@@ -230,7 +255,7 @@ async def sync_schedule(db: Session = Depends(get_db)):
         for g_key, g_name in groups_map.items():
             all_group_lessons = []
             try:
-                all_group_lessons = client.get_group_schedule(g_key)
+                all_group_lessons = await asyncio.to_thread(client.get_group_schedule, g_key)
             except Exception as err:
                 log_event("WARNING", "Logika", f"Не вдалося отримати повний розклад групи {g_name}: {err}")
 
@@ -292,7 +317,7 @@ async def sync_schedule(db: Session = Depends(get_db)):
             attended = target_lesson.get("attendedAmount") or 0
             if target_lesson.get("lessonStatus") == "FINISH" or attended > 0:
                 try:
-                    absents_list = client.get_absent_students(schedule_id)
+                    absents_list = await asyncio.to_thread(client.get_absent_students, schedule_id)
                     if absents_list:
                         absents_str = ", ".join(absents_list)
                 except Exception as e:
@@ -383,16 +408,23 @@ async def sync_schedule(db: Session = Depends(get_db)):
         settings.last_sync_at = datetime.now().isoformat()
         settings.last_sync_count = total_active
         settings.last_error = None
+        settings.access_token = client.access_token
+        settings.refresh_token = client.refresh_token
+        settings.xsrf_token = client.xsrf_token
         db.commit()
 
-        log_event("INFO", "Logika", f"Синхронізація розкладу: {total_active} груп (додано {synced_count}, оновлено {updated_count})")
+        log_event("INFO", "Logika", f"Синхронізація розкладу: {total_active} груп (додано {synced_count}, оновлено {updated_count}); отримано {len(raw_lessons)} занять; пропущено {skipped}; статуси ACTIVE,RECRUITING; типи GROUP,INDIVIDUAL")
         return {
             "success": True,
             "added": synced_count,
             "updated": updated_count,
             "total": total_active,
-            "message": f"Синхронізовано {total_active} активних груп викладача",
+            "message": f"Синхронізовано {total_active} груп викладача зі статусами «Активна» та «Йде набір»",
         }
+    except asyncio.CancelledError:
+        client.cancel()
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         err_msg = str(e)

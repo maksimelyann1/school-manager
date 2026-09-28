@@ -7,6 +7,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 import time
+import threading
 
 logger = logging.getLogger("logika_client")
 
@@ -40,9 +41,18 @@ class LogikaClient:
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.xsrf_token = xsrf_token
+        self._cancelled = threading.Event()
+
+    def cancel(self):
+        self._cancelled.set()
+
+    def _check_cancelled(self):
+        if self._cancelled.is_set():
+            raise LogikaAuthError("Операцію Logika скасовано")
 
     def authenticate(self) -> Dict[str, Any]:
         """Виконує вхід через фоновий браузер для безпечного проходження шифрування та отримання токенів."""
+        self._check_cancelled()
         if not self.login_user or not self.password:
             raise LogikaAuthError("Логін або пароль не вказані")
 
@@ -57,8 +67,10 @@ class LogikaClient:
         driver = None
         try:
             driver = webdriver.Chrome(options=opts)
+            driver.set_page_load_timeout(25)
             driver.get(LOGIKA_BACKOFFICE_URL)
             time.sleep(2.5)
+            self._check_cancelled()
 
             login_input = driver.find_element(By.ID, "login")
             pass_input = driver.find_element(By.ID, "password")
@@ -71,6 +83,7 @@ class LogikaClient:
             submit_btn.click()
 
             time.sleep(3.5)
+            self._check_cancelled()
 
             # Перевіряємо помилки на сторінці
             cur_url = driver.current_url
@@ -143,11 +156,13 @@ class LogikaClient:
 
     def _authorized_request(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Виконує HTTP-запит з автоматичним оновленням токену при 401."""
+        self._check_cancelled()
         if not self.access_token:
             self.authenticate()
 
         with self._get_http_client() as client:
             resp = client.request(method, url, **kwargs)
+            self._check_cancelled()
             if resp.status_code == 401:
                 self.refresh_access_token()
                 with self._get_http_client() as retry_client:
@@ -160,8 +175,10 @@ class LogikaClient:
         size: int = 100,
         teacher_id: Optional[int] = None,
         status: str = "ACTIVE",
-        active: bool = True,
+        active: Optional[bool] = True,
         is_start_day_now: bool = True,
+        content_types: Optional[str] = None,
+        all_pages: bool = False,
     ) -> List[Dict[str, Any]]:
         """Отримує список уроків викладача."""
         params = {
@@ -169,17 +186,36 @@ class LogikaClient:
             "size": size,
             "status": status,
             "isStartDayNow": "true" if is_start_day_now else "false",
-            "active": "true" if active else "false",
             "deleted": "false",
         }
+        if active is not None:
+            params["active"] = "true" if active else "false"
+        if content_types:
+            params["type"] = content_types
         if teacher_id:
             params["currentEmployeeId"] = teacher_id
-        resp = self._authorized_request("GET", f"{LOGIKA_API_URL}/schedule", params=params)
-        if resp.status_code != 200:
-            raise Exception(f"Не вдалося отримати розклад: HTTP {resp.status_code} {resp.text[:200]}")
-        
-        data = resp.json()
-        return data.get("content", [])
+        lessons = []
+        seen_ids = set()
+        while True:
+            resp = self._authorized_request("GET", f"{LOGIKA_API_URL}/schedule", params=dict(params))
+            if resp.status_code != 200:
+                raise Exception(f"Не вдалося отримати розклад: HTTP {resp.status_code} {resp.text[:200]}")
+            data = resp.json()
+            items = data.get("content", [])
+            ids = {item.get("id") for item in items if item.get("id") is not None}
+            if lessons and items and (not ids or ids.issubset(seen_ids)):
+                raise Exception("Logika повторює сторінку розкладу; не вдалося завантажити всі заняття")
+            seen_ids.update(ids)
+            lessons.extend(items)
+            if not all_pages or not items or data.get("last") is True:
+                break
+            total_pages = data.get("totalPages")
+            if isinstance(total_pages, int) and params["page"] + 1 >= total_pages:
+                break
+            if data.get("last") is not False and total_pages is None and len(items) < size:
+                break
+            params["page"] += 1
+        return lessons
 
     def get_group_schedule(self, group_id: int) -> List[Dict[str, Any]]:
         """Отримує повний розклад усіх уроків для конкретної групи."""
