@@ -1,0 +1,6 @@
+:root{color-scheme:dark;font:16px/1.6 system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
+*{box-sizing:border-box}body{margin:0}main{max-width:820px;margin:auto;padding:36px 22px 56px}
+h1{font-size:clamp(28px,5vw,42px);line-height:1.16;letter-spacing:-.025em}h2{font-size:21px;margin:26px 0 8px}
+p{margin:10px 0;color:#cbd5e1}a{color:#b4a8ff;text-underline-offset:4px}a:focus-visible{outline:2px solid #a78bfa;outline-offset:4px}
+section{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:18px 22px;margin-top:20px}section h2{margin-top:0}
+.eyebrow{color:#a78bfa;font-weight:700;letter-spacing:.12em}.draft{padding:10px 14px;border:1px solid #a16207;border-radius:8px;color:#fde68a;font-size:14px}
