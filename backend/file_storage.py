@@ -10,6 +10,7 @@ from database import db_dir
 
 TEMPLATE_FILES_DIR = os.path.join(db_dir, "template_files")
 AUTO_MESSAGE_FILES_DIR = os.path.join(db_dir, "auto_message_files")
+PLANNER_FILES_DIR = os.path.join(db_dir, "planner_files")
 IMPORT_CACHE_DIR = os.path.join(db_dir, "import_cache")
 FILE_READ_CHUNK_SIZE = 1024 * 1024
 IMPORT_CACHE_TTL_SECONDS = 24 * 60 * 60
@@ -19,6 +20,7 @@ MAX_REMOTE_IMPORT_BYTES = 256 * 1024 * 1024
 def ensure_storage_dirs():
     os.makedirs(TEMPLATE_FILES_DIR, exist_ok=True)
     os.makedirs(AUTO_MESSAGE_FILES_DIR, exist_ok=True)
+    os.makedirs(PLANNER_FILES_DIR, exist_ok=True)
     os.makedirs(IMPORT_CACHE_DIR, exist_ok=True)
 
 
@@ -58,6 +60,10 @@ def template_file_path(stored_filename: str) -> str:
 
 def auto_message_file_path(stored_filename: str) -> str:
     return _resolve_inside(AUTO_MESSAGE_FILES_DIR, stored_filename)
+
+
+def planner_file_path(stored_filename: str) -> str:
+    return _resolve_inside(PLANNER_FILES_DIR, stored_filename)
 
 
 def import_file_path(stored_filename: str) -> str:

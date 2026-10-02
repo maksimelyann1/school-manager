@@ -4,7 +4,7 @@ import json
 
 from fastapi import HTTPException
 
-from task_models import PlannerExternalLink, PlannerReminder, PlannerSyncJob, PlannerConnection, PlannerCalendar
+from task_models import PlannerAttachment, PlannerExternalLink, PlannerReminder, PlannerSyncJob, PlannerConnection, PlannerCalendar
 
 
 def utc_now():
@@ -72,9 +72,14 @@ def serialize(item, db=None, related=None):
     local_start = datetime.fromisoformat(item.start_at).astimezone(zone(item.timezone)) if item.start_at else None
     local_end = datetime.fromisoformat(item.end_at).astimezone(zone(item.timezone)) if item.end_at else None
     data = {key: getattr(item, key) for key in (
-        "id", "title", "description", "kind", "category", "status", "timezone", "parent_id", "group_id",
+        "id", "title", "description", "location", "kind", "category", "color", "status", "timezone", "parent_id", "group_id",
         "source", "revision", "created_at", "updated_at", "completed_at", "deleted_at",
     )}
+    conference = json.loads(item.conference_data or '{}')
+    data.update(recurrence=json.loads(item.recurrence or '[]'), attendees=json.loads(item.attendees or '[]'),
+                meet_requested=bool(item.meet_requested),
+                meet_url=next((p.get('uri') for p in conference.get('entryPoints', []) if p.get('entryPointType') == 'video'), None),
+                meet_status=conference.get('createRequest', {}).get('status', {}).get('statusCode'))
     data.update(date=local_start.date().isoformat() if local_start else item.start_date,
                 fold=local_start.fold if local_start else None,
                 time=local_start.strftime("%H:%M") if local_start else None,
@@ -82,7 +87,8 @@ def serialize(item, db=None, related=None):
                     (date.fromisoformat(item.end_date) - timedelta(days=1)).isoformat() if item.end_date else None,
                 end_time=local_end.strftime("%H:%M") if local_end else None,
                 start=item.start_at or item.start_date, end=item.end_at or item.end_date,
-                all_day=not bool(item.start_at), read_only=bool(item.read_only), google_enabled=bool(item.google_enabled))
+                all_day=not bool(item.start_at), read_only=bool(item.read_only), google_enabled=bool(item.google_enabled),
+                google_calendar_id=item.google_calendar_id)
     if db is not None or related is not None:
         job, link, reminders = related if related is not None else (
             db.query(PlannerSyncJob).filter_by(item_id=item.id).first(),
@@ -104,7 +110,13 @@ def serialize_many(items, db):
     reminders = {}
     for row in db.query(PlannerReminder).filter(PlannerReminder.item_id.in_(ids)):
         reminders.setdefault(row.item_id, []).append(row)
-    return [serialize(item, related=(jobs.get(item.id), links.get(item.id), reminders.get(item.id, []))) for item in items]
+    attachments = {}
+    for file in db.query(PlannerAttachment).filter(PlannerAttachment.item_id.in_(ids)).order_by(PlannerAttachment.created_at):
+        attachments.setdefault(file.item_id, []).append({"id": file.id, "name": file.original_filename, "size": file.size})
+    result = [serialize(item, related=(jobs.get(item.id), links.get(item.id), reminders.get(item.id, []))) for item in items]
+    for data in result:
+        data["attachments"] = attachments.get(data["id"], [])
+    return result
 
 
 def update_reminders(db, item, old):

@@ -5,8 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from test_task_planner import PlannerFixture
-from task_models import PlannerExternalLink, PlannerItem, PlannerReminder, PlannerSyncJob
+from task_models import PlannerCalendar, PlannerConnection, PlannerExternalLink, PlannerItem, PlannerReminder, PlannerSyncJob
 from services.planner import google_sync as google, reminders
+from routers.planner_google import update_calendar_access
 from services.planner.items import utc_now
 
 
@@ -70,12 +71,109 @@ class GoogleAcknowledgementTests(PlannerFixture):
         self.assertEqual(self.db.get(PlannerItem, item['id']).title, 'Нова правка під час синхронізації')
 
     def test_readonly_calendar_not_written_even_with_job(self):
-        cal = self.connect(managed=False)
+        cal = self.connect()
         item = self.create(date='2030-01-01', google_enabled=True)
-        saved = self.db.get(PlannerItem, item['id']); saved.read_only = 1; self.db.commit()
+        saved = self.db.get(PlannerItem, item['id']); saved.read_only = 1; cal.managed = 0; self.db.commit()
         api = SimpleNamespace(request=AsyncMock())
         asyncio.run(google.push_job(self.db, api, cal, self.db.query(PlannerSyncJob).one()))
         api.request.assert_not_awaited()
+
+    def test_writable_external_event_edits_only_changed_fields(self):
+        cal = self.connect(managed=False)
+        cal.writable, cal.access_role = 1, 'writer'
+        self.db.commit()
+        original = {'id': 'foreign-event', 'etag': 'v1', 'summary': 'Урок',
+            'start': {'date': '2030-01-01'}, 'end': {'date': '2030-01-02'},
+            'reminders': {'useDefault': True}, 'extendedProperties': {'private': {'otherApp': 'keep'}},
+            'attendees': [{'email': 'guest@example.com', 'responseStatus': 'accepted'}]}
+        google.apply_remote(self.db, cal, original); self.db.commit()
+        item = self.db.query(PlannerItem).one()
+        self.assertFalse(item.read_only)
+        result = self.client.patch('/api/tasks/' + item.id, json={'revision': 1, 'title': 'Новий урок'})
+        self.assertEqual(result.status_code, 200, result.text)
+        writes = []
+        async def write(method, path, **kwargs):
+            writes.append((method, path, kwargs['json']))
+            return {**original, **kwargs['json'], 'etag': 'v2'}
+        self.db.expire_all()
+        asyncio.run(google.push_job(self.db, SimpleNamespace(request=write), cal, self.db.query(PlannerSyncJob).one()))
+        self.assertEqual(writes[0][0], 'PATCH')
+        self.assertIn('/foreign-event', writes[0][1])
+        self.assertEqual(writes[0][2], {'summary': 'Новий урок'})
+        self.assertEqual(self.db.query(PlannerSyncJob).count(), 0)
+
+    def test_target_calendar_write_permission_enforced(self):
+        cal = self.connect(managed=False)
+        response = self.client.post('/api/tasks', json={'title': 'Урок', 'date': '2030-01-01',
+            'google_enabled': True, 'google_calendar_id': cal.id})
+        self.assertEqual(response.status_code, 403)
+        cal.writable, cal.access_role = 1, 'owner'
+        self.db.commit()
+        response = self.client.post('/api/tasks', json={'title': 'Урок', 'date': '2030-01-01',
+            'google_enabled': True, 'google_calendar_id': cal.id})
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()['google_calendar_id'], cal.id)
+
+    def test_calendar_change_rejected_for_linked_event(self):
+        cal = self.connect(managed=False)
+        cal.writable = 1
+        second = PlannerCalendar(connection_id=cal.connection_id, remote_id='second', name='Other', visible=1, writable=1)
+        self.db.add(second); self.db.commit()
+        google.apply_remote(self.db, cal, {'id': 'event', 'etag': 'v1', 'summary': 'Урок',
+            'start': {'date': '2030-01-01'}, 'end': {'date': '2030-01-02'}})
+        self.db.commit()
+        item = self.db.query(PlannerItem).one()
+        response = self.client.patch('/api/tasks/' + item.id, json={'revision': 1, 'google_calendar_id': second.id})
+        self.assertEqual(response.status_code, 422)
+
+    def test_new_event_is_sent_to_selected_calendar(self):
+        managed = self.connect()
+        other = PlannerCalendar(connection_id=managed.connection_id, remote_id='chosen-calendar',
+            name='Lessons', visible=1, writable=1)
+        self.db.add(other); self.db.commit()
+        item = self.create(title='Нова подія', date='2030-01-01', kind='event',
+            google_enabled=True, google_calendar_id=other.id)
+        writes = []
+        async def request(method, path, **kwargs):
+            writes.append((method, path, kwargs['json']))
+            return {**kwargs['json'], 'etag': 'v1'}
+        api = SimpleNamespace(request=request, close=AsyncMock())
+        with (patch.object(google, 'SessionLocal', self.sessions),
+              patch.object(google, 'access_token', AsyncMock(return_value='fake')),
+              patch.object(google, 'GoogleAPI', return_value=api),
+              patch.object(google, 'pull_calendar', AsyncMock())):
+            asyncio.run(google.sync_google(force=True))
+        self.assertEqual(len(writes), 1)
+        self.assertIn('chosen-calendar', writes[0][1])
+        self.assertNotIn('reminders', writes[0][2])
+        self.assertEqual(self.db.query(PlannerExternalLink).one().calendar_id, other.id)
+
+    def test_new_scope_unlocks_existing_import_without_new_etag(self):
+        cal = self.connect(managed=False)
+        original = {'id': 'existing', 'etag': 'v1', 'summary': 'Урок',
+            'start': {'date': '2030-01-01'}, 'end': {'date': '2030-01-02'}}
+        google.apply_remote(self.db, cal, original); self.db.commit()
+        item = self.db.query(PlannerItem).one()
+        self.assertTrue(item.read_only)
+        update_calendar_access(self.db, cal, 'writer', True)
+        self.db.commit()
+        self.assertFalse(item.read_only)
+        self.assertTrue(item.google_enabled)
+        google.apply_remote(self.db, cal, original); self.db.commit()
+        self.assertFalse(item.read_only)
+
+    def test_linked_event_can_be_edited_while_connection_needs_reauth(self):
+        cal = self.connect(managed=False)
+        cal.writable = 1
+        google.apply_remote(self.db, cal, {'id': 'existing', 'etag': 'v1', 'summary': 'Урок',
+            'start': {'date': '2030-01-01'}, 'end': {'date': '2030-01-02'}})
+        self.db.commit()
+        item = self.db.query(PlannerItem).one()
+        self.db.query(PlannerConnection).one().state = 'reauth'
+        self.db.commit()
+        response = self.client.patch('/api/tasks/' + item.id, json={'revision': 1, 'title': 'Офлайн зміна'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.db.query(PlannerSyncJob).one().state, 'pending')
 
 
 class TelegramReminderTests(PlannerFixture):

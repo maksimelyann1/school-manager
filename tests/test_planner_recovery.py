@@ -81,6 +81,6 @@ class PlannerRecoveryTests(PlannerFixture):
             ensure_planner_migrations(engine)
             self.assertIn('sync_attempts', {c['name'] for c in inspect(engine).get_columns('planner_connections')})
             with engine.connect() as connection:
-                self.assertEqual(tuple(connection.execute(text('SELECT * FROM planner_connections')).one()), ('saved', 'test@example.test', 0))
+                self.assertEqual(tuple(connection.execute(text('SELECT * FROM planner_connections')).one()), ('saved', 'test@example.test', 0, 0))
         finally:
             engine.dispose()

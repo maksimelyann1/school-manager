@@ -3,6 +3,7 @@ import FloatingPanel from '../components/FloatingPanel'
 import { NumberStepper } from '../components/FormControls'
 import ResizableTable from '../components/ResizableTable'
 import TelegramSendIcon from '../components/TelegramSendIcon'
+import RefreshButton from '../components/RefreshButton'
 import { useToast } from '../components/ToastProvider'
 import { getSearchVariations } from '../utils/search'
 import { API_URL } from '../api/client'
@@ -1227,9 +1228,7 @@ function ParentsReport() {
                 <div>
                     <h2>Звіт батькам</h2>
                 </div>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={loadAll} disabled={!!busy}>
-                    Оновити
-                </button>
+                <RefreshButton onClick={loadAll} busy={loading} disabled={!!busy} />
             </div>
 
             <div className="parents-report-summary">

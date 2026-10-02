@@ -49,7 +49,9 @@ export function AppSelect({
     placeholder = 'Оберіть...',
     disabled = false,
     className = '',
-    ariaLabel
+    menuClassName = '',
+    ariaLabel,
+    portalContainerRef
 }) {
     const [isOpen, setIsOpen] = useState(false)
     const rootRef = useRef(null)
@@ -70,6 +72,7 @@ export function AppSelect({
 
         const handleKeyDown = (event) => {
             if (event.key === 'Escape') {
+                event.preventDefault()
                 setIsOpen(false)
                 buttonRef.current?.focus()
             }
@@ -109,10 +112,11 @@ export function AppSelect({
                 open={isOpen}
                 anchorRef={buttonRef}
                 panelRef={menuRef}
-                className="app-select-menu"
+                className={`app-select-menu ${menuClassName}`}
                 matchWidth
                 maxHeight={280}
                 zIndex={11000}
+                portalContainerRef={portalContainerRef}
             >
                     {options.map(option => {
                         const selected = String(option.value) === String(value)

@@ -12,8 +12,14 @@ class PlannerItem(Base):
     id = Column(String, primary_key=True, default=lambda: uuid4().hex)
     title = Column(String(240), nullable=False)
     description = Column(Text, nullable=False, default="")
+    location = Column(Text, nullable=False, default="")
+    recurrence = Column(Text, nullable=False, default="[]")
+    attendees = Column(Text, nullable=False, default="[]")
+    meet_requested = Column(Integer, nullable=False, default=0)
+    conference_data = Column(Text, nullable=True)
     kind = Column(String, nullable=False, default="task")
     category = Column(String, nullable=False, default="preparation")
+    color = Column(String(7), nullable=True)
     status = Column(String, nullable=False, default="open")
     start_date = Column(String, nullable=True, index=True)
     end_date = Column(String, nullable=True)
@@ -26,12 +32,25 @@ class PlannerItem(Base):
     read_only = Column(Integer, nullable=False, default=0)
     google_enabled = Column(Integer, nullable=False, default=0)
     google_connection_id = Column(String, ForeignKey('planner_connections.id'), nullable=True)
+    google_calendar_id = Column(Integer, ForeignKey('planner_calendars.id'), nullable=True)
     revision = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     completed_at = Column(String, nullable=True)
     deleted_at = Column(String, nullable=True, index=True)
     __table_args__ = (Index("ix_planner_status_date", "status", "start_date"),)
+
+
+class PlannerAttachment(Base):
+    __tablename__ = "planner_attachments"
+
+    id = Column(String, primary_key=True, default=lambda: uuid4().hex)
+    item_id = Column(String, ForeignKey("planner_items.id"), nullable=False, index=True)
+    original_filename = Column(String, nullable=False)
+    stored_filename = Column(String, nullable=False)
+    content_type = Column(String, nullable=False, default="application/octet-stream")
+    size = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
 
 
 class PlannerConnection(Base):
@@ -44,6 +63,7 @@ class PlannerConnection(Base):
     last_sync_at = Column(String, nullable=True)
     next_sync_at = Column(String, nullable=True)
     sync_attempts = Column(Integer, nullable=False, default=0)
+    events_write = Column(Integer, nullable=False, default=0)
 
 
 class PlannerCalendar(Base):
@@ -53,10 +73,13 @@ class PlannerCalendar(Base):
     remote_id = Column(String, nullable=False)
     name = Column(String, nullable=False)
     managed = Column(Integer, nullable=False, default=0)
+    access_role = Column(String, nullable=False, default='reader')
+    writable = Column(Integer, nullable=False, default=0)
     visible = Column(Integer, nullable=False, default=0)
     sync_token = Column(Text, nullable=True)
     last_sync_at = Column(String, nullable=True)
     sync_window_start = Column(String, nullable=True)
+    sync_format = Column(Integer, nullable=False, default=0)
     __table_args__ = (UniqueConstraint("connection_id", "remote_id"),)
 
 

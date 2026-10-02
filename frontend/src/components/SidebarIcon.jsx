@@ -1,6 +1,29 @@
 import './SidebarIcon.css'
 
 const drawings = {
+    edit: <>
+        <path className="menu-icon-surface" d="M5 4h9a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a3 3 0 0 1 2-3Z" />
+        <path d="M12 4H6a3 3 0 0 0-3 3v11a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-6" />
+        <path d="m9 14.8 7.6-7.6a2 2 0 0 1 2.8 2.8l-7.6 7.6-3.3.5Z" />
+    </>,
+    delete: <>
+        <path className="menu-icon-surface" d="M6 6h12l-.8 13a2 2 0 0 1-2 2H8.8a2 2 0 0 1-2-2Z" />
+        <path d="M4 6h16M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 6l.8 13a2 2 0 0 0 2 2h6.4a2 2 0 0 0 2-2L18 6M10 10v7m4-7v7" />
+    </>,
+    more: <>
+        <circle className="menu-icon-surface" cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="9" />
+        <g fill="currentColor" stroke="none">
+            <circle cx="12" cy="7.5" r="1" />
+            <circle cx="12" cy="12" r="1" />
+            <circle cx="12" cy="16.5" r="1" />
+        </g>
+    </>,
+    close: <>
+        <circle className="menu-icon-surface" cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="9" />
+        <path d="m9 9 6 6m0-6-6 6" />
+    </>,
     refresh: <>
         <path d="M20.5 10a8.7 8.7 0 1 0-.8 6M20.5 4.5V10H15" />
     </>,

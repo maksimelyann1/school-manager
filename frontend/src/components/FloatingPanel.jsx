@@ -18,7 +18,8 @@ function FloatingPanel({
     width = 320,
     maxHeight = 320,
     zIndex = 10000,
-    stableHeight = false
+    stableHeight = false,
+    portalContainerRef
 }) {
     const [style, setStyle] = useState(null)
     const [placement, setPlacement] = useState('bottom')
@@ -171,7 +172,7 @@ function FloatingPanel({
         >
             {children}
         </div>,
-        document.body
+        portalContainerRef?.current || document.body
     )
 }
 

@@ -14,6 +14,7 @@ from sqlalchemy import update
 from database import SessionLocal
 from task_models import PlannerCalendar, PlannerConnection, PlannerExternalLink, PlannerItem, PlannerSyncJob
 from services.planner.google_auth import access_token
+from services.planner.description import from_google, to_google
 from services.planner.items import cancel_reminders, serialize, update_reminders, utc_now, zone
 
 sync_lock = asyncio.Lock()
@@ -33,14 +34,18 @@ def equivalent_event(expected, event, calendar):
         return False
     try:
         a, b = remote_values(expected, calendar), remote_values(event, calendar)
-        return all(a[key] == b[key] for key in ('title', 'description', 'kind', 'category', 'status', 'start_date', 'end_date', 'start_at', 'end_at'))
+        keys = ('title', 'description', 'kind', 'category', 'status', 'start_date', 'end_date', 'start_at', 'end_at', 'location', 'recurrence')
+        emails = lambda value: sorted(x.get('email', '').lower() for x in json.loads(value['attendees']))
+        return all(a[key] == b[key] for key in keys) and emails(a) == emails(b) and (
+            'conferenceData' not in expected or bool(expected.get('conferenceData')) == bool(event.get('conferenceData')))
     except (ValueError, KeyError):
         return False
 
 
 class GoogleError(Exception):
-    def __init__(self, status):
+    def __init__(self, status, reason=''):
         self.status = status
+        self.reason = reason
         super().__init__(f'Google Calendar HTTP {status}')
 
 
@@ -51,7 +56,11 @@ class GoogleAPI:
     async def request(self, method, path, **kwargs):
         response = await self.client.request(method, API + path, **kwargs)
         if not response.is_success:
-            raise GoogleError(response.status_code)
+            try:
+                reason = response.json().get('error', {}).get('message', '')
+            except ValueError:
+                reason = ''
+            raise GoogleError(response.status_code, reason)
         return response.json() if response.content else {}
 
     async def pages(self, path, params=None):
@@ -83,16 +92,22 @@ def remote_values(event, calendar):
     except HTTPException:
         tz = 'Europe/Kyiv'
     private = event.get('extendedProperties', {}).get('private', {})
-    kind = private.get('smKind', 'event') if calendar.managed else 'event'
+    app_event = bool(calendar.managed or private.get('smId'))
+    kind = private.get('smKind', 'event') if app_event else 'event'
     kind = kind if kind in {'task', 'event'} else 'event'
-    state = private.get('smStatus', 'open') if calendar.managed else 'open'
+    state = private.get('smStatus', 'open') if app_event else 'open'
     state = state if state in {'open', 'done', 'cancelled'} else 'open'
-    category = private.get('smCategory', 'event') if calendar.managed else 'event'
+    category = private.get('smCategory', 'event') if app_event else 'event'
     if category not in {'lesson', 'substitution', 'preparation', 'event', 'other'}:
         category = 'event'
-    values = dict(title=(event.get('summary') or 'Без назви')[:240], description=(event.get('description') or '')[:20000],
+    values = dict(title=(event.get('summary') or 'Без назви')[:240], description=from_google(event.get('description'))[:20000],
+        location=(event.get('location') or '')[:1000], recurrence=json.dumps(event.get('recurrence') or []),
+        attendees=json.dumps(event.get('attendees') or []), meet_requested=int(bool(event.get('conferenceData'))),
+        conference_data=json.dumps(event.get('conferenceData')) if event.get('conferenceData') else None,
         kind=kind, category=category, status=state, timezone=tz,
-        read_only=int(not calendar.managed or bool(event.get('recurringEventId'))), google_enabled=int(bool(calendar.managed)),
+        read_only=int(not (calendar.managed or calendar.writable) or bool(event.get('recurringEventId'))),
+        google_enabled=int(bool(calendar.managed or calendar.writable)),
+        google_calendar_id=calendar.id,
         start_at=None, end_at=None, start_date=start.get('date'), end_date=end.get('date'))
     if start.get('dateTime'):
         a = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
@@ -108,22 +123,74 @@ def event_body(item):
         end = {'dateTime': item.end_at, 'timeZone': item.timezone}
     else:
         start, end = {'date': item.start_date}, {'date': item.end_date}
-    return {'summary': item.title, 'description': item.description, 'start': start, 'end': end,
+    body = {'summary': item.title, 'description': to_google(item.description), 'start': start, 'end': end,
+        'location': item.location or '', 'recurrence': json.loads(item.recurrence or '[]'),
+        'attendees': json.loads(item.attendees or '[]'),
         'extendedProperties': {'private': {'smId': item.id, 'smKind': item.kind, 'smStatus': item.status, 'smCategory': item.category}},
         'reminders': {'useDefault': False}}
+    conference = json.loads(item.conference_data or '{}')
+    if item.meet_requested:
+        if conference and conference.get('createRequest', {}).get('status', {}).get('statusCode') != 'failure':
+            body['conferenceData'] = conference
+        else:
+            body['conferenceData'] = {'createRequest': {'requestId': f'{item.id}-{item.revision}',
+                'conferenceSolutionKey': {'type': 'hangoutsMeet'}}}
+    elif conference:
+        body['conferenceData'] = None
+    return body
+
+
+def changed_event_body(item, snapshot, calendar):
+    """Patch only fields actually edited here, retaining Google-only event settings."""
+    before = remote_values(snapshot, calendar)
+    body = event_body(item)
+    result = {}
+    fields = {'title': 'summary', 'description': 'description', 'location': 'location',
+              'recurrence': 'recurrence', 'attendees': 'attendees'}
+    for field, google_field in fields.items():
+        if getattr(item, field) != before[field]:
+            result[google_field] = body[google_field]
+    if any(getattr(item, field) != before[field] for field in ('start_date', 'end_date', 'start_at', 'end_at', 'timezone')):
+        result['start'], result['end'] = body['start'], body['end']
+    if bool(item.meet_requested) != bool(before['meet_requested']):
+        result['conferenceData'] = body.get('conferenceData')
+    if any(getattr(item, field) != before[field] for field in ('kind', 'category', 'status')):
+        original_properties = snapshot.get('extendedProperties') or {}
+        result['extendedProperties'] = {**original_properties,
+            'private': {**original_properties.get('private', {}), **body['extendedProperties']['private']}}
+    return result
 
 
 def apply_remote(db, calendar, event, link=None):
     link = link or db.query(PlannerExternalLink).filter_by(calendar_id=calendar.id, event_id=event['id']).first()
-    if not link and event.get('status') == 'cancelled':
+    if event.get('status') == 'cancelled' and not event.get('recurringEventId'):
         for occurrence in db.query(PlannerExternalLink).filter_by(calendar_id=calendar.id):
             snapshot = json.loads(occurrence.snapshot or '{}')
             if snapshot.get('recurringEventId') == event['id']:
-                apply_remote(db, calendar, {'id': occurrence.event_id, 'status': 'cancelled', 'etag': event.get('etag', 'series-deleted')}, occurrence)
+                apply_remote(db, calendar, {**snapshot, 'id': occurrence.event_id, 'status': 'cancelled', 'etag': event.get('etag', 'series-deleted')}, occurrence)
+    if not link and event.get('status') == 'cancelled':
+        original = event.get('originalStartTime', {})
+        if event.get('recurringEventId') and (original.get('date') or original.get('dateTime')):
+            stamp = utc_now()
+            tombstone = PlannerItem(id=uuid4().hex, title='Скасоване повторення', source='google', read_only=1,
+                                    created_at=stamp, updated_at=stamp, deleted_at=stamp)
+            db.add(tombstone)
+            db.flush()
+            db.add(PlannerExternalLink(item_id=tombstone.id, calendar_id=calendar.id, event_id=event['id'],
+                                      etag=event.get('etag'), snapshot=json.dumps(event)))
         return
-    if event.get('recurrence'):
-        return  # Expanded instances are requested; never interpret a series as a one-time item.
     if link and link.etag == event.get('etag'):
+        if (calendar.sync_format or 0) < 1 and event.get('status') != 'cancelled':
+            item = db.get(PlannerItem, link.item_id)
+            if item:
+                values = remote_values(event, calendar)
+                item.conference_data = values['conference_data']
+                queued = db.query(PlannerSyncJob).filter_by(item_id=item.id).first()
+                if not queued:
+                    for key in ('location', 'recurrence', 'attendees', 'meet_requested', 'description'):
+                        setattr(item, key, values[key])
+                elif values['conference_data']:
+                    item.meet_requested = 1
         return
     item = db.get(PlannerItem, link.item_id) if link else None
     if link and not link.etag and event.get('etag') == 'deleted' and link.pending_snapshot:
@@ -133,7 +200,11 @@ def apply_remote(db, calendar, event, link=None):
         expected = json.loads(link.pending_snapshot)
         matches = equivalent_event(expected, event, calendar)
         if matches:
+            if event.get('status') != 'cancelled':
+                item.conference_data = json.dumps(event.get('conferenceData')) if event.get('conferenceData') else None
             if job and job.revision == link.pending_revision and item.revision == link.pending_revision:
+                if event.get('status') != 'cancelled':
+                    item.attendees = json.dumps(event.get('attendees') or [])
                 db.delete(job)
             link.etag, link.snapshot = event.get('etag'), json.dumps(event)
             link.pending_snapshot, link.pending_revision = None, None
@@ -154,7 +225,8 @@ def apply_remote(db, calendar, event, link=None):
                 return
             db.refresh(item)
             cancel_reminders(db, item)
-            link.etag, link.snapshot = event.get('etag'), json.dumps(event)
+            snapshot = {**json.loads(link.snapshot or '{}'), **event}
+            link.etag, link.snapshot = event.get('etag'), json.dumps(snapshot)
         return
     values = remote_values(event, calendar)
     if not values['start_date']:
@@ -180,12 +252,17 @@ def apply_remote(db, calendar, event, link=None):
 
 async def pull_calendar(db, api, calendar):
     now = datetime.now(timezone.utc)
+    format_version = 2 if calendar.writable and not calendar.managed else 1
+    upgrading = (calendar.sync_format or 0) < format_version
+    if upgrading:
+        calendar.sync_token = None
     if calendar.sync_window_start and now - datetime.fromisoformat(calendar.sync_window_start) > timedelta(days=28):
         calendar.sync_token = None
     initial = not calendar.sync_token
-    params = {'maxResults': 2500, 'singleEvents': 'true', 'showDeleted': 'true'}
+    params = {'maxResults': 2500, 'singleEvents': 'false' if calendar.managed or calendar.writable else 'true', 'showDeleted': 'true'}
     if initial:
-        params.update(timeMin=(now - timedelta(days=90)).isoformat(), timeMax=(now + timedelta(days=366)).isoformat())
+        if not calendar.managed:
+            params.update(timeMin=(now - timedelta(days=90)).isoformat(), timeMax=(now + timedelta(days=366)).isoformat())
     else:
         params['syncToken'] = calendar.sync_token
     try:
@@ -203,6 +280,11 @@ async def pull_calendar(db, api, calendar):
         known_ids = {event['id'] for event in events}
         for link in db.query(PlannerExternalLink).filter_by(calendar_id=calendar.id).all():
             item = db.get(PlannerItem, link.item_id)
+            if upgrading and link.event_id not in known_ids and json.loads(link.snapshot or '{}').get('recurringEventId'):
+                if item:
+                    item.deleted_at = utc_now()
+                db.delete(link)
+                continue
             if item and item.start_date and (now - timedelta(days=90)).date().isoformat() <= item.start_date < (now + timedelta(days=366)).date().isoformat() and link.event_id not in known_ids:
                 # Confirm deletion/move individually; absence from a window is not deletion.
                 try:
@@ -219,12 +301,13 @@ async def pull_calendar(db, api, calendar):
     for link, event in confirmations:
         apply_remote(db, calendar, event, link)
     calendar.sync_token, calendar.last_sync_at = token, utc_now()
+    calendar.sync_format = format_version
     db.commit()
 
 
 async def push_job(db, api, calendar, job):
     item = db.get(PlannerItem, job.item_id)
-    if not item or item.read_only or job.state == 'conflict' or (job.connection_id and job.connection_id != calendar.connection_id) or (item.google_connection_id and item.google_connection_id != calendar.connection_id):
+    if not item or item.read_only or not (calendar.managed or calendar.writable) or job.state == 'conflict' or (job.connection_id and job.connection_id != calendar.connection_id) or (item.google_connection_id and item.google_connection_id != calendar.connection_id):
         return
     link = db.query(PlannerExternalLink).filter_by(item_id=item.id).first()
     if link and link.calendar_id != calendar.id:
@@ -237,10 +320,16 @@ async def push_job(db, api, calendar, job):
         db.delete(job); db.commit(); return
     event_id = link.event_id if link else 'sm' + hashlib.sha256((calendar.remote_id + item.id + str(revision)).encode()).hexdigest()[:48]
     body = event_body(item)
+    if not calendar.managed and not link:
+        body.pop('reminders', None)  # Respect the selected calendar's default notifications.
+    if link and link.etag:
+        body = changed_event_body(item, json.loads(link.snapshot or '{}'), calendar)
+        if not removing and not body:
+            db.delete(job); db.commit(); return
     if not link:
         link = PlannerExternalLink(item_id=item.id, calendar_id=calendar.id, event_id=event_id)
         db.add(link)
-    link.pending_snapshot = json.dumps({'status': 'cancelled'} if removing else body)
+    link.pending_snapshot = json.dumps({'status': 'cancelled'} if removing else {**json.loads(link.snapshot or '{}'), **body} if link.etag else body)
     link.pending_revision = revision
     job.connection_id = calendar.connection_id
     item.google_connection_id = calendar.connection_id
@@ -248,7 +337,7 @@ async def push_job(db, api, calendar, job):
     try:
         if removing:
             try:
-                await api.request('DELETE', event_path(calendar, event_id), headers={'If-Match': link.etag or '*'}, params={'sendUpdates': 'none'})
+                await api.request('DELETE', event_path(calendar, event_id), headers={'If-Match': link.etag or '*'}, params={'sendUpdates': 'all'})
             except GoogleError as err:
                 if err.status not in {404, 410}:
                     raise
@@ -263,10 +352,10 @@ async def push_job(db, api, calendar, job):
             item.source = 'local'
         else:
             if link.etag:
-                event = await api.request('PATCH', event_path(calendar, event_id), json=body, headers={'If-Match': link.etag or '*'}, params={'sendUpdates': 'none'})
+                event = await api.request('PATCH', event_path(calendar, event_id), json=body, headers={'If-Match': link.etag or '*'}, params={'sendUpdates': 'all', 'conferenceDataVersion': 1})
             else:
                 try:
-                    event = await api.request('POST', event_path(calendar), json={**body, 'id': event_id}, params={'sendUpdates': 'none'})
+                    event = await api.request('POST', event_path(calendar), json={**body, 'id': event_id}, params={'sendUpdates': 'all', 'conferenceDataVersion': 1})
                 except GoogleError as err:
                     if err.status != 409:
                         raise
@@ -280,7 +369,11 @@ async def push_job(db, api, calendar, job):
             link.pending_snapshot, link.pending_revision = None, None
         db.refresh(item)
         db.refresh(job)
+        if not removing:
+            item.conference_data = json.dumps(event.get('conferenceData')) if event.get('conferenceData') else None
         if item.revision == revision and job.revision == revision:
+            if not removing:
+                item.attendees = json.dumps(event.get('attendees') or [])
             db.delete(job)
         db.commit()
     except GoogleError as err:
@@ -311,17 +404,40 @@ async def sync_google(force=False):
             for calendar in calendars:
                 if calendar.managed or calendar.visible:
                     await pull_calendar(db, api, calendar)
-            managed = next((cal for cal in calendars if cal.managed), None)
-            if managed:
-                jobs = db.query(PlannerSyncJob).filter(PlannerSyncJob.state != 'conflict',
+            if calendars:
+                jobs = db.query(PlannerSyncJob).filter(PlannerSyncJob.state.notin_(['conflict', 'error']),
                     (PlannerSyncJob.connection_id == connection.id) | PlannerSyncJob.connection_id.is_(None)).limit(50).all()
                 for job in jobs:
                     if not job.next_attempt_at or job.next_attempt_at <= now:
-                        await push_job(db, api, managed, job)
+                        item = db.get(PlannerItem, job.item_id)
+                        link = db.query(PlannerExternalLink).filter_by(item_id=job.item_id).first()
+                        calendar_id = link.calendar_id if link else item.google_calendar_id if item else None
+                        calendar = next((cal for cal in calendars if cal.id == calendar_id), None)
+                        if not calendar:
+                            calendar = next((cal for cal in calendars if cal.managed), None) if calendar_id is None else None
+                        if not calendar or not (calendar.managed or calendar.writable):
+                            continue
+                        try:
+                            await push_job(db, api, calendar, job)
+                        except GoogleError as err:
+                            if err.status != 400:
+                                raise
+                            job.state = 'error'
+                            job.error = ('Цей календар не підтримує Google Meet. Приберіть Meet і збережіть подію повторно.'
+                                if 'conference' in err.reason.lower() else 'Google відхилив параметри події. Перевірте гостей і повторення та збережіть знову.')
+                            link = db.query(PlannerExternalLink).filter_by(item_id=job.item_id).first()
+                            if link:
+                                link.pending_snapshot, link.pending_revision = None, None
+                                if not link.etag:
+                                    db.delete(link)
+                            db.commit()
             connection.last_sync_at, connection.last_error = utc_now(), None
             connection.state, connection.sync_attempts = 'connected', 0
             interval = 5 if time.monotonic() - last_activity < 90 else 15
             connection.next_sync_at = (datetime.now(timezone.utc) + timedelta(minutes=interval)).isoformat()
+            pending_meet = db.query(PlannerItem).filter_by(google_connection_id=connection.id, deleted_at=None, meet_requested=1).all()
+            if any(json.loads(item.conference_data or '{}').get('createRequest', {}).get('status', {}).get('statusCode') == 'pending' for item in pending_meet):
+                connection.next_sync_at = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
             db.commit()
             return {'state': 'connected'}
         except Exception as err:

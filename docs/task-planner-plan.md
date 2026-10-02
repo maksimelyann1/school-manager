@@ -100,7 +100,7 @@
 
 Це відповідає потоку Google для встановлених застосунків; вхід через вбудований WebView не використовуємо. [OAuth для desktop](https://developers.google.com/identity/protocols/oauth2/native-app).
 
-Права під узгоджений режим: `calendar.app.created` для окремого календаря застосунку, `calendar.calendarlist.readonly` для вибору календарів, `calendar.events.readonly` для перегляду інших подій. Ідентичність акаунта отримувати через OpenID Connect (`openid email`); жодних прав на Gmail чи Drive. Зберігати стабільний ID акаунта, а email використовувати як підпис. [Дозволи Calendar API](https://developers.google.com/workspace/calendar/api/auth).
+Права: `calendar.app.created` для окремого календаря застосунку, `calendar.calendarlist.readonly` для вибору календарів, `calendar.events` для створення та редагування подій у календарях, де користувач має право запису. Ідентичність акаунта отримувати через OpenID Connect (`openid email`); жодних прав на Gmail чи Drive. Зберігати стабільний ID акаунта, а email використовувати як підпис. [Дозволи Calendar API](https://developers.google.com/workspace/calendar/api/auth).
 
 ### Події та задачі
 

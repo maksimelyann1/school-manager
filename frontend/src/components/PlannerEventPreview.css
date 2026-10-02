@@ -1,0 +1,19 @@
+.planner-event-preview { position: fixed; z-index: 10040; width: 380px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; padding: 14px 18px 19px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-card); color: var(--text-primary); box-shadow: 0 18px 42px rgba(0, 0, 0, .48); }
+.planner-event-preview__actions { display: flex; justify-content: flex-end; gap: 4px; margin: -3px -6px 13px 0; }
+.planner-event-preview__actions button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.planner-event-preview__actions button:hover:not(:disabled) { background: var(--bg-input); color: var(--text-primary); }
+.planner-event-preview__actions button:focus-visible { outline: 2px solid var(--primary-light); outline-offset: 1px; }
+.planner-event-preview__actions button:disabled { opacity: .4; cursor: not-allowed; }
+.planner-event-preview__actions svg { width: 23px; height: 23px; }
+.planner-event-preview__actions .menu-icon-surface { fill: currentColor; fill-opacity: .09; stroke: none; }
+.planner-event-preview__main { display: flex; align-items: flex-start; gap: 13px; }
+.planner-event-preview__marker { flex: 0 0 14px; height: 14px; margin-top: 5px; border-radius: 4px; }
+.planner-event-preview__content { min-width: 0; }
+.planner-event-preview h3 { margin: 0 0 7px; font-size: 20px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.planner-event-preview__schedule { margin: 0; font-size: 13px; line-height: 1.5; }
+.planner-event-preview__meta { margin: 12px 0 0; color: var(--text-secondary); font-size: 12px; }
+.planner-event-preview__description { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.planner-description-view :is(ol, ul) { margin: 4px 0; padding-left: 20px; }
+.planner-description-view a { color: var(--primary-light); }
+.planner-event-preview__attachments { display: grid; gap: 5px; margin-top: 12px; }
+.planner-event-preview__attachments a { color: var(--primary-light); font-size: 12px; overflow-wrap: anywhere; }

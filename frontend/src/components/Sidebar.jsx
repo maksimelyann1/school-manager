@@ -12,13 +12,15 @@ const sections = [
     { items: [
         ['/', 'home', 'Головна'],
         ['/parents-report', 'report', 'Звіт батькам'],
-        ['/tasks', 'planner', 'Задачник'],
         ['/messages', 'message', 'Повідомлення'],
         ['/auto-messages', 'scheduled', 'Автоповідомлення'],
         ['/templates', 'template', 'Шаблони'],
-        ['/logs', 'journal', 'Журнал подій'],
     ] },
-    { className: 'nav-menu-service', items: [['/settings', 'settings', 'Налаштування']] },
+    { className: 'nav-menu-planner', items: [['/tasks', 'planner', 'Задачник']] },
+    { className: 'nav-menu-service', items: [
+        ['/logs', 'journal', 'Журнал подій'],
+        ['/settings', 'settings', 'Налаштування'],
+    ] },
     { className: 'nav-menu-bottom', items: [['/info', 'help', 'Допомога']] },
 ]
 

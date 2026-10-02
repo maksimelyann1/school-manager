@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ResizableTable from '../components/ResizableTable';
+import RefreshButton from '../components/RefreshButton';
 import { useApi } from '../hooks/useApi';
 
 const LOG_COLUMN_WIDTHS_KEY = 'school_manager.logs.column_widths.v1';
@@ -132,10 +133,8 @@ export default function Logs() {
                     <h2>Журнал подій</h2>
                     <p>Історія роботи додатку та можливі помилки</p>
                 </div>
-                <div>
-                    <button className="btn btn-secondary btn-sm" onClick={fetchLogs} style={{ marginRight: '8px' }}>
-                        Оновити
-                    </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <RefreshButton onClick={fetchLogs} busy={loading} />
                     <button className="btn btn-danger btn-sm" onClick={clearLogs}>
                         Очистити журнал
                     </button>

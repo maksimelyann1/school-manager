@@ -70,6 +70,7 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.oauth.state, 'connected')
         self.success.assert_awaited_once_with({'sub': 'stable-id', 'email': 'fake@example.test'})
         self.assertEqual(self.save.call_args.args[0], 'stable-id')
+        self.assertIn(auth.EVENTS_SCOPE, self.save.call_args.args[1]['scope'])
         self.assertNotIn('fake-access', repr(vars(self.oauth)))
 
     async def test_refresh_and_revoked_token(self):

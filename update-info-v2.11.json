@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.11",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.11/SchoolManager_Setup.exe",
+  "changelog": "• Розширено задачник: повторювані події, кольори, місце проведення, вкладення та форматування опису.\n• Додано попередній перегляд подій і меню дій у календарі.\n• Розширено інтеграцію Google Calendar: вибір доступного для редагування календаря, учасники, Google Meet та синхронізація повторень. Для нових можливостей може знадобитися повторне підключення Google.\n• Magic автоматично повторює запити при HTTP 503, має обмеження часу очікування й зрозуміліші повідомлення про помилки. Скорочено інструкцію для редагування тексту.\n• Додано Gemini 3.8 Flash до списку моделей.\n• Уніфіковано кнопки «Оновити» на головній сторінці, у звітах батькам, журналі подій і задачнику.\n• Оновлено розташування пунктів меню: «Журнал подій» біля налаштувань, «Задачник» після розділювача під шаблонами.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.11/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.11/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

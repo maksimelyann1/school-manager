@@ -7,12 +7,26 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
 from task_models import PlannerCalendar, PlannerConnection, PlannerExternalLink, PlannerItem, PlannerSyncJob
-from services.planner.google_auth import oauth, client_config, config_path, access_token, delete_token
+from services.planner.google_auth import oauth, client_config, config_path, access_token, delete_token, load_token, EVENTS_SCOPE
 from services.planner.google_sync import GoogleAPI, apply_remote, sync_google, sync_lock
 from services.planner.items import queue_sync
 
 from services.planner.routes import PlannerRoute
 router = APIRouter(prefix='/planner/google', tags=['Google Календар'], route_class=PlannerRoute)
+
+
+def update_calendar_access(db, calendar, role, events_write):
+    calendar.access_role = role
+    calendar.writable = int(bool(calendar.managed or (events_write and role in {'owner', 'writer'})))
+    for link, item in db.query(PlannerExternalLink, PlannerItem).join(
+        PlannerItem, PlannerItem.id == PlannerExternalLink.item_id
+    ).filter(PlannerExternalLink.calendar_id == calendar.id).all():
+        if item.source != 'google' or item.deleted_at:
+            continue
+        recurring_instance = bool(json.loads(link.snapshot or '{}').get('recurringEventId'))
+        item.read_only = int(not calendar.writable or recurring_instance)
+        item.google_enabled = int(bool(calendar.managed or calendar.writable))
+        item.google_calendar_id = calendar.id
 
 
 def active_connection(db):
@@ -32,13 +46,16 @@ def status(db: Session = Depends(get_db)):
     connection = db.query(PlannerConnection).filter(PlannerConnection.state.in_(['connected', 'reauth', 'error'])).first()
     calendars = db.query(PlannerCalendar).filter_by(connection_id=connection.id).all() if connection else []
     return {'configured': configured, 'config_path': str(config_path()), 'oauth_state': oauth.state, 'oauth_error': oauth.error,
-        'connection': {'email': connection.email, 'state': connection.state, 'last_sync_at': connection.last_sync_at, 'error': connection.last_error} if connection else None,
-        'calendars': [{'id': c.id, 'name': c.name, 'managed': bool(c.managed), 'visible': bool(c.visible)} for c in calendars]}
+        'connection': {'email': connection.email, 'state': connection.state, 'last_sync_at': connection.last_sync_at,
+            'error': connection.last_error, 'events_write': bool(connection.events_write)} if connection else None,
+        'calendars': [{'id': c.id, 'name': c.name, 'managed': bool(c.managed), 'visible': bool(c.visible),
+            'writable': bool(c.writable or c.managed), 'access_role': c.access_role} for c in calendars]}
 
 
 async def connected(person):
     async with sync_lock:
         with SessionLocal() as db:
+            token = await asyncio.to_thread(load_token, person['sub'])
             for connection in db.query(PlannerConnection).filter(PlannerConnection.state != 'disconnected'):
                 connection.state = 'disconnected'
             current = db.query(PlannerConnection).filter_by(account_id=person['sub']).first()
@@ -47,6 +64,10 @@ async def connected(person):
                 db.add(current)
             current.email, current.state, current.last_error, current.next_sync_at = person.get('email', ''), 'connected', None, None
             current.sync_attempts = 0
+            current.events_write = int(EVENTS_SCOPE in (token or {}).get('scope', '').split())
+            db.flush()
+            for calendar in db.query(PlannerCalendar).filter_by(connection_id=current.id):
+                update_calendar_access(db, calendar, calendar.access_role, current.events_write)
             db.commit()
 
 
@@ -84,7 +105,10 @@ async def discover_calendars(db: Session = Depends(get_db)):
                 if existing:
                     existing.name = value.get('summary', 'Календар')
                 else:
-                    db.add(PlannerCalendar(connection_id=connection.id, remote_id=value['id'], name=value.get('summary', 'Календар')))
+                    existing = PlannerCalendar(connection_id=connection.id, remote_id=value['id'], name=value.get('summary', 'Календар'))
+                    db.add(existing)
+                    db.flush()
+                update_calendar_access(db, existing, value.get('accessRole', 'reader'), connection.events_write)
             db.commit()
         finally:
             await api.close()
@@ -109,7 +133,9 @@ async def create_calendar(db: Session = Depends(get_db)):
             if record is None:
                 record = PlannerCalendar(connection_id=connection.id, remote_id=value['id'], name='School Manager')
                 db.add(record)
+                db.flush()
             record.managed, record.visible = 1, 1
+            update_calendar_access(db, record, 'owner', connection.events_write)
             connection.next_sync_at = None
             db.commit()
         finally:

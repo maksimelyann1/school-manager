@@ -66,6 +66,7 @@ REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 PKG_REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 
 MODEL_OPTIONS = [
+    {"label": "Gemini 3.8 Flash", "value": "gemini-3.8-flash"},
     {"label": "Gemini 3.5 Flash", "value": "gemini-3.5-flash"},
     {"label": "Gemini 3 Flash", "value": "gemini-3-flash-preview"},
     {"label": "Gemini 3.1 Flash Lite", "value": "gemini-3.1-flash-lite"},

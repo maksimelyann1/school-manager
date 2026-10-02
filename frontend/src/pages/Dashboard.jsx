@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { API_URL } from '../api/client'
 import IntegrationStatusCard from '../components/IntegrationStatusCard'
-import SidebarIcon from '../components/SidebarIcon'
-import './Dashboard.css'
+import RefreshButton from '../components/RefreshButton'
 
 
 export default function Dashboard() {
@@ -266,11 +265,7 @@ export default function Dashboard() {
                     <h2>Головна панель</h2>
                     <p>Огляд роботи додатку та найближчі завдання</p>
                 </div>
-                <button className="dashboard-refresh" onClick={refreshDashboard}
-                    disabled={refreshing} aria-busy={refreshing}>
-                    <SidebarIcon name="refresh" />
-                    <span>{refreshing ? 'Оновлення…' : 'Оновити'}</span>
-                </button>
+                <RefreshButton onClick={refreshDashboard} busy={refreshing} />
             </div>
 
             {/* ===== Картки статистики (компактний розмір) ===== */}

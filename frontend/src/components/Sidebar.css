@@ -2,6 +2,11 @@
 .sidebar-tooltip { display: none; }
 
 @media (min-width: 769px) {
+    .nav-menu-planner {
+        margin-top: 8px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+    }
     .sidebar.sidebar-collapsible {
         position: relative;
         z-index: 10;
@@ -13,6 +18,7 @@
     .sidebar--collapsed .sidebar-logo h1,
     .sidebar--collapsed .nav-label { display: none; }
     .sidebar--collapsed .nav-item { justify-content: center; gap: 0; }
+    .sidebar-collapsible .nav-item.active { box-shadow: none; }
 
     .sidebar-toggle {
         position: absolute;
@@ -58,6 +64,10 @@
         right: 100%;
         width: 14px;
     }
+}
+
+@media (max-width: 768px) {
+    .nav-menu-planner { flex: 0 0 auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

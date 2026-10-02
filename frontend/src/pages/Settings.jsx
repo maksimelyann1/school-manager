@@ -12,6 +12,7 @@ import { API_URL, reportClientError } from '../api/client'
 const DAYS = ['понеділок', 'вівторок', 'середа', 'четвер', "п'ятниця", 'субота', 'неділя']
 const DAY_OPTIONS = DAYS.map(day => ({ value: day, label: day }))
 const GEMINI_MODEL_OPTIONS = [
+    { label: 'Gemini 3.8 Flash', value: 'gemini-3.8-flash' },
     { label: 'Gemini 3.5 Flash', value: 'gemini-3.5-flash' },
     { label: 'Gemini 3 Flash', value: 'gemini-3-flash-preview' },
     { label: 'Gemini 3.1 Flash Lite', value: 'gemini-3.1-flash-lite' },

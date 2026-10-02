@@ -18,7 +18,8 @@ from database import db_dir
 
 SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.app.created',
           'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
-          'https://www.googleapis.com/auth/calendar.events.readonly']
+          'https://www.googleapis.com/auth/calendar.events']
+EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 SERVICE = 'SchoolManager.Planner.Google'
@@ -147,7 +148,7 @@ class DesktopOAuth:
                     person = profile.json()
                 if not token.get('refresh_token'):
                     raise HTTPException(401, 'Не отримано дозвіл на фонову синхронізацію. Повторіть вхід')
-                token = {key: token[key] for key in ('access_token', 'refresh_token', 'expires_in') if key in token}
+                token = {key: token[key] for key in ('access_token', 'refresh_token', 'expires_in', 'scope') if key in token}
                 token['expires_at'] = time.time() + token.get('expires_in', 3600)
                 await asyncio.to_thread(save_token, person['sub'], token)
                 await on_success(person)
