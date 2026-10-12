@@ -6,6 +6,7 @@ function ResizableTable({
     sort,
     onSortChange,
     renderCell,
+    onRowContextMenu,
     getRowKey = (row) => row.id,
     emptyMessage = 'Немає даних',
     tableClassName = 'table',
@@ -95,7 +96,14 @@ function ResizableTable({
                             <td colSpan={columns.length}>{emptyMessage}</td>
                         </tr>
                     ) : rows.map(row => (
-                        <tr key={getRowKey(row)}>
+                        <tr key={getRowKey(row)}
+                            onContextMenu={onRowContextMenu ? event => onRowContextMenu(event, row) : undefined}
+                            tabIndex={onRowContextMenu ? 0 : undefined}
+                            onKeyDown={onRowContextMenu ? event => {
+                                if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                                    onRowContextMenu(event, row)
+                                }
+                            } : undefined}>
                             {columns.map(column => (
                                 <td key={column.id} className={column.cellClassName || ''}>
                                     {renderCell(row, column)}

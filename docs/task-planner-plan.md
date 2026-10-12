@@ -170,7 +170,7 @@ HTTP 429/5xx: обмежені повтори зі збільшенням пау
 
 Windows Widgets використовують власний host; для Win32 доступний provider у пакетованому застосунку. Це окремий канал інтерфейсу, а не автоматичне відображення React-сторінки на робочому столі. [Windows Widgets](https://learn.microsoft.com/en-us/windows/apps/design/widgets), [Widget providers](https://learn.microsoft.com/en-us/windows/apps/develop/widgets/widget-providers).
 
-Компактне вікно використовує маршрут `/tasks/widget` та спільну базу задач. Його відкриває desktop-оболонка; окремого інсталятора не потрібно. Залежить від запущеного School Manager.
+Попередній компактний віджет замінено окремою вкладкою `/widgets` та вікнами `widgets.html` для календаря, справ і уроків. Вікна без системної рамки використовують спільну базу задач. Налаштування, монітор, прозорість і закріплення описані у [desktop-widgets.md](desktop-widgets.md). Потрібен запущений School Manager.
 
 ## Етапи та критерії готовності
 

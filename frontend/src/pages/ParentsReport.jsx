@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
+import { useNotificationFocus } from '../components/NotificationNavigation'
 import FloatingPanel from '../components/FloatingPanel'
 import { NumberStepper } from '../components/FormControls'
 import ResizableTable from '../components/ResizableTable'
 import TelegramSendIcon from '../components/TelegramSendIcon'
 import RefreshButton from '../components/RefreshButton'
+import ReportResendDialog from '../components/ReportResendDialog'
+import LessonContextMenu from '../components/LessonContextMenu'
 import { useToast } from '../components/ToastProvider'
 import { getSearchVariations } from '../utils/search'
 import { API_URL } from '../api/client'
@@ -239,7 +243,14 @@ function GroupMappingCell({ lesson, groups, onSelect }) {
 }
 
 function ParentsReport() {
-    const [activeTab, setActiveTab] = useState('pending')
+    const location = useLocation()
+    const notificationParams = new URLSearchParams(location.search)
+    const requestedTab = notificationParams.get('tab')
+    const focusedLesson = notificationParams.get('lesson_id')
+    const focusedDate = notificationParams.get('lesson_date')
+    const focusedRun = notificationParams.get('run_id')
+    const runsUrl = `${API_URL}/parents-report/runs${focusedRun ? `?run_id=${encodeURIComponent(focusedRun)}` : ''}`
+    const [activeTab, setActiveTab] = useState(['runs', 'schedule'].includes(requestedTab) ? requestedTab : 'pending')
     const [activeSheet, setActiveSheet] = useState('schedule')
     const [settings, setSettings] = useState(null)
     const [pending, setPending] = useState([])
@@ -252,6 +263,8 @@ function ParentsReport() {
     const [sendingReportIds, setSendingReportIds] = useState(() => new Set())
     const [absentsByLesson, setAbsentsByLesson] = useState({})
     const [postponeModal, setPostponeModal] = useState(null)
+    const [scheduleMenu, setScheduleMenu] = useState(null)
+    const [resendRun, setResendRun] = useState(null)
     const [newCourseName, setNewCourseName] = useState('')
     const [scheduleSort, setScheduleSort] = useState({ key: '', direction: 'asc' })
     const [columnWidths, setColumnWidths] = useState(loadColumnWidths)
@@ -262,6 +275,7 @@ function ParentsReport() {
     const postponeTimeInputRef = useRef(null)
     const sourceSyncAttemptedRef = useRef(false)
     const reportSendLockRef = useRef(new Set())
+    const pendingKey = (lesson) => `${lesson.id}:${lesson.lesson_run_date}`
 
     const lessons = workbook.schedule || []
     const courses = workbook.courses || []
@@ -284,8 +298,15 @@ function ParentsReport() {
     }, [lessons, scheduleSort])
 
     useEffect(() => {
+        setActiveTab(['runs', 'schedule'].includes(requestedTab) ? requestedTab : 'pending')
         loadAll()
-    }, [])
+    }, [location.key])
+
+    const focusedElement = activeTab === 'runs' && focusedRun ? `report-run-${focusedRun}`
+        : activeTab === 'pending' && focusedLesson ? `report-lesson-${focusedLesson}${focusedDate ? `-${focusedDate}` : ''}` : null
+    const focusedExists = activeTab === 'runs' ? runs.some(run => String(run.id) === focusedRun)
+        : pending.some(lesson => String(lesson.id) === focusedLesson)
+    useNotificationFocus(focusedElement, !loading && focusedExists, location.key)
 
     useEffect(() => {
         if (!['pending', 'schedule', 'runs'].includes(activeTab) || busy || sendingReportIds.size) return
@@ -298,7 +319,7 @@ function ParentsReport() {
                 const [pendingData, workbookData, runsData] = await Promise.all([
                     requestJson(`${API_URL}/parents-report/pending`, { signal: controller.signal }),
                     requestJson(`${API_URL}/parents-report/workbook`, { signal: controller.signal }),
-                    requestJson(`${API_URL}/parents-report/runs`, { signal: controller.signal })
+                    requestJson(runsUrl, { signal: controller.signal })
                 ])
                 if (controller.signal.aborted) return
                 setPending(pendingData.pending_lessons || [])
@@ -317,7 +338,7 @@ function ParentsReport() {
             window.removeEventListener('startup-sync-complete', refresh)
             controller.abort()
         }
-    }, [activeTab, busy, sendingReportIds])
+    }, [activeTab, busy, sendingReportIds, location.key])
 
     useEffect(() => {
         try {
@@ -383,7 +404,7 @@ function ParentsReport() {
                 requestJson(`${API_URL}/parents-report/pending`),
                 requestJson(`${API_URL}/parents-report/workbook`),
                 requestJson(`${API_URL}/groups/`),
-                requestJson(`${API_URL}/parents-report/runs`)
+                requestJson(runsUrl)
             ])
             let nextPendingData = pendingData
             let nextWorkbookData = workbookData
@@ -398,7 +419,7 @@ function ParentsReport() {
                     const [syncedPending, syncedWorkbook, syncedRuns] = await Promise.all([
                         requestJson(`${API_URL}/parents-report/pending`),
                         requestJson(`${API_URL}/parents-report/workbook`),
-                        requestJson(`${API_URL}/parents-report/runs`)
+                        requestJson(runsUrl)
                     ])
                     nextPendingData = syncedPending
                     nextWorkbookData = syncedWorkbook
@@ -412,7 +433,7 @@ function ParentsReport() {
             setWorkbook(nextWorkbookData || { schedule: [], courses: [], sheet_names: [] })
             setGroups(groupsData || [])
             setRuns(nextRunsData || [])
-            setAbsentsByLesson(Object.fromEntries((nextPendingData.pending_lessons || []).map(item => [item.id, ''])))
+            setAbsentsByLesson({})
         } catch (error) {
             showError(error.message || 'Не вдалося завантажити звіти')
         } finally {
@@ -424,7 +445,7 @@ function ParentsReport() {
         const [pendingData, workbookData, runsData] = await Promise.all([
             requestJson(`${API_URL}/parents-report/pending`),
             requestJson(`${API_URL}/parents-report/workbook`),
-            requestJson(`${API_URL}/parents-report/runs`)
+            requestJson(runsUrl)
         ])
         setPending(pendingData.pending_lessons || [])
         setWorkbook(workbookData || { schedule: [], courses: [], sheet_names: [] })
@@ -691,6 +712,21 @@ function ParentsReport() {
         }
     }
 
+    const toggleLessonPause = async (lesson) => {
+        setBusy(`pause-${lesson.id}`)
+        try {
+            await requestJson(`${API_URL}/parents-report/schedule/${lesson.id}/pause`, {
+                method: 'PATCH', body: JSON.stringify({ paused: !lesson.is_paused })
+            })
+            await refreshReports()
+            showSuccess(lesson.is_paused ? 'Групу відновлено' : 'Групу поставлено на паузу')
+        } catch (error) {
+            showError(error.message)
+        } finally {
+            setBusy('')
+        }
+    }
+
     const addCourse = async () => {
         const name = newCourseName.trim()
         if (!name) return
@@ -803,24 +839,45 @@ function ParentsReport() {
         }
     }
 
-    const sendReport = async (lessonId) => {
-        if (reportSendLockRef.current.has(lessonId)) return
+    const previewManualReport = async (lesson) => {
+        setBusy(`preview-${pendingKey(lesson)}`)
+        try {
+            const updated = await requestJson(`${API_URL}/parents-report/preview`, {
+                method: 'POST',
+                body: JSON.stringify({ lesson_id: lesson.id, lesson_date: lesson.lesson_run_date,
+                    review_run_id: lesson.review_run_id, absents: absentsByLesson[pendingKey(lesson)] ?? null })
+            })
+            setPending(prev => prev.map(item => pendingKey(item) === pendingKey(lesson)
+                ? { ...item, ...updated } : item))
+            showSuccess('Тему й відвідування заняття звірено з Logika')
+        } catch (error) {
+            showError(error.message)
+        } finally {
+            setBusy('')
+        }
+    }
+
+    const sendReport = async (lesson) => {
+        const key = pendingKey(lesson)
+        if (reportSendLockRef.current.has(key)) return
         const alreadyQueueing = reportSendLockRef.current.size > 0
-        reportSendLockRef.current.add(lessonId)
+        reportSendLockRef.current.add(key)
         setSendingReportIds(prev => {
             const next = new Set(prev)
-            next.add(lessonId)
+            next.add(key)
             return next
         })
         if (alreadyQueueing) {
             showSuccess('\u0417\u0432\u0456\u0442 \u0434\u043e\u0434\u0430\u043d\u043e \u0432 \u0447\u0435\u0440\u0433\u0443')
         }
         try {
-            const currentAbsents = absentsByLesson[lessonId] ?? ''
+            const currentAbsents = absentsByLesson[key] ?? null
             await requestJson(`${API_URL}/parents-report/send`, {
                 method: 'POST',
                 body: JSON.stringify({
-                    lesson_id: lessonId,
+                    lesson_id: lesson.id,
+                    lesson_date: lesson.lesson_run_date,
+                    review_run_id: lesson.review_run_id,
                     absents: currentAbsents,
                     test: settings?.test_mode
                 })
@@ -828,17 +885,17 @@ function ParentsReport() {
             await refreshReports()
             setAbsentsByLesson(prev => {
                 const next = { ...prev }
-                delete next[lessonId]
+                delete next[key]
                 return next
             })
             showSuccess('Звіт відправлено')
         } catch (error) {
             showError(error.message)
         } finally {
-            reportSendLockRef.current.delete(lessonId)
+            reportSendLockRef.current.delete(key)
             setSendingReportIds(prev => {
                 const next = new Set(prev)
-                next.delete(lessonId)
+                next.delete(key)
                 return next
             })
         }
@@ -921,11 +978,24 @@ function ParentsReport() {
 
     const openPostponeModal = (lesson, anchorElement) => {
         postponeAnchorRef.current = anchorElement || null
+        const postponed = lesson.postponed_start_at ? new Date(lesson.postponed_start_at) : null
+        const existing = postponed && !Number.isNaN(postponed.getTime()) ? postponed : null
         setPostponeModal({
             lesson,
-            date: addDaysToDateString(lesson.lesson_run_date, 7),
-            time: normalizeInputTime(lesson.start_time || '18:00')
+            date: existing ? toInputDate(existing) : addDaysToDateString(lesson.lesson_run_date, 7),
+            time: existing ? `${String(existing.getHours()).padStart(2, '0')}:${String(existing.getMinutes()).padStart(2, '0')}`
+                : normalizeInputTime(lesson.start_time || '18:00')
         })
+    }
+
+    const openScheduleMenu = (event, lesson) => {
+        if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return
+        event.preventDefault()
+        const anchor = event.target.closest('td') || event.currentTarget
+        const bounds = anchor.getBoundingClientRect()
+        setPostponeModal(null)
+        setScheduleMenu({ lesson, anchor,
+            x: event.clientX || bounds.left + 12, y: event.clientY || bounds.top + 12 })
     }
 
     const openNativePicker = (inputRef) => {
@@ -965,23 +1035,28 @@ function ParentsReport() {
         </button>
     )
 
-    const renderPostponeBadge = (lesson) => {
-        if (!lesson?.is_postponed) return null
+    const renderLessonBadges = (lesson) => {
+        if (!lesson?.is_postponed && !lesson?.is_paused) return null
         return (
-            <div className="parents-postpone-badge">
-                <span>Перенесено до {formatFullDateTime(lesson.postponed_start_at)}</span>
-                <button
-                    type="button"
-                    className="parents-postpone-cancel"
-                    onClick={() => clearLessonPostpone(lesson.id)}
-                    disabled={!!busy}
-                    title="Скасувати перенесення"
-                    aria-label="Скасувати перенесення"
-                >
-                    <svg viewBox="0 0 16 16" aria-hidden="true">
-                        <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-                    </svg>
-                </button>
+            <div className="parents-lesson-badges">
+                {lesson.is_paused && <span className="parents-pause-badge" title="Автозвіти для цієї групи призупинено">Ⅱ На паузі</span>}
+                {lesson.is_postponed && (
+                    <div className="parents-postpone-badge">
+                        <span>Перенесено до {formatFullDateTime(lesson.postponed_start_at)}</span>
+                        <button
+                            type="button"
+                            className="parents-postpone-cancel"
+                            onClick={() => clearLessonPostpone(lesson.id)}
+                            disabled={!!busy}
+                            title="Скасувати перенесення"
+                            aria-label="Скасувати перенесення"
+                        >
+                            <svg viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
             </div>
         )
     }
@@ -991,7 +1066,7 @@ function ParentsReport() {
             return (
                 <div className="parents-readonly-group">
                     <strong>{lesson.group_name || '-'}</strong>
-                    {renderPostponeBadge(lesson)}
+                    {renderLessonBadges(lesson)}
                     <span>{lesson.telegram_group_name || 'TG не вибрано'}</span>
                 </div>
             )
@@ -1019,6 +1094,7 @@ function ParentsReport() {
             tableClassName="table parents-table parents-edit-table parents-readonly-table"
             emptyMessage={'\u0420\u043e\u0437\u043a\u043b\u0430\u0434 \u043f\u043e\u043a\u0438 \u043f\u043e\u0440\u043e\u0436\u043d\u0456\u0439. \u0406\u043c\u043f\u043e\u0440\u0442\u0443\u0439 XLSX \u0443 \u0432\u043a\u043b\u0430\u0434\u0446\u0456 \u201c\u0411\u0430\u0437\u0430 \u0434\u0430\u043d\u0438\u0445\u201d.'}
             renderCell={renderReadOnlyScheduleCell}
+            onRowContextMenu={openScheduleMenu}
         />
     )
 
@@ -1033,7 +1109,7 @@ function ParentsReport() {
                         groups={groups}
                         onSelect={(group) => patchLesson(lesson.id, { telegram_group_id: group.id })}
                     />
-                    {renderPostponeBadge(lesson)}
+                    {renderLessonBadges(lesson)}
                 </>
             )
         }
@@ -1127,6 +1203,7 @@ function ParentsReport() {
             tableClassName="table parents-table parents-edit-table"
             emptyMessage={'\u0420\u043e\u0437\u043a\u043b\u0430\u0434 \u043f\u043e\u0440\u043e\u0436\u043d\u0456\u0439'}
             renderCell={renderEditableScheduleCell}
+            onRowContextMenu={openScheduleMenu}
         />
     )
 
@@ -1313,16 +1390,23 @@ function ParentsReport() {
                         </button>
                     </div>
 
+                    {focusedLesson && !loading && !focusedExists && <p className="alert alert-info" role="status">
+                        Цей звіт уже опрацьовано або урок перенесено. <button type="button" className="btn btn-secondary btn-sm"
+                            onClick={() => setActiveTab('runs')}>Переглянути журнал</button>
+                    </p>}
                     {pending.length === 0 ? (
                         <div className="parents-empty">Немає уроків, які потребують звіт.</div>
                     ) : (
                         <div className="parents-pending-list">
-                            {pending.map(lesson => {
-                                const isSending = sendingReportIds.has(lesson.id)
+                            {pending.map((lesson, index) => {
+                                const key = pendingKey(lesson)
+                                const isSending = sendingReportIds.has(key)
                                 const sendBlockedReason = getSendBlockedReason(lesson, isSending)
                                 return (
-                                    <article key={lesson.id} className="parents-report-item">
+                                    <article key={key} id={`report-lesson-${lesson.id}-${lesson.lesson_run_date}`} tabIndex={-1}
+                                        className={`parents-report-item ${String(lesson.id) === focusedLesson ? 'notification-target' : ''}`}>
                                         <div className="parents-report-main">
+                                            {!pending.slice(0, index).some(item => item.id === lesson.id) && <span id={`report-lesson-${lesson.id}`} />}
                                             <div className="parents-report-title-row">
                                                 <div>
                                                     <h3>{lesson.group_name}</h3>
@@ -1334,6 +1418,9 @@ function ParentsReport() {
                                                         {lesson.lesson_title ? ` (${lesson.lesson_title})` : ''}
                                                     </p>
                                                     {lesson.delivery_warning && <p role="status">{lesson.delivery_warning}</p>}
+                                                    {lesson.manual_required && <p className="parents-manual-review" role="status">
+                                                        <strong>Потрібне ручне рішення.</strong> {lesson.manual_reason}
+                                                    </p>}
                                                     {lesson.is_postponed && (
                                                         <p className="parents-postponed-note">
                                                             Перенесений урок
@@ -1349,14 +1436,16 @@ function ParentsReport() {
                                             <div className="parents-send-row">
                                                 <input
                                                     className="form-input"
-                                                    value={absentsByLesson[lesson.id] ?? ''}
-                                                    onChange={(event) => setAbsentsByLesson(prev => ({ ...prev, [lesson.id]: event.target.value }))}
+                                                    value={absentsByLesson[key] ?? lesson.absents ?? ''}
+                                                    onChange={(event) => setAbsentsByLesson(prev => ({ ...prev, [key]: event.target.value }))}
                                                     placeholder="Відсутні (через кому)"
+                                                    aria-label="Відсутні учні"
+                                                    title="Без ручних змін відсутні беруться з Logika перед відправкою. Редагування поля задає їх вручну."
                                                 />
                                                 <button
                                                     type="button"
                                                     className={`btn btn-primary parents-send-button ${isSending ? 'is-loading' : ''}`}
-                                                    onClick={() => sendReport(lesson.id)}
+                                                    onClick={() => sendReport(lesson)}
                                                     disabled={!!sendBlockedReason}
                                                     title={sendBlockedReason || 'Згенерувати звіт через Gemini і відправити в Telegram'}
                                                 >
@@ -1371,13 +1460,25 @@ function ParentsReport() {
                                                     type="button"
                                                     className="btn btn-secondary parents-postpone-button"
                                                     onClick={(event) => openPostponeModal(lesson, event.currentTarget)}
-                                                    disabled={!!busy || isSending || !!lesson.delivery_status}
+                                                    disabled={!!busy || isSending || !!lesson.delivery_status || !!lesson.review_run_id}
                                                     title="Перенести урок на іншу дату"
                                                 >
                                                     <PostponeIcon />
                                                     <span>Перенести</span>
                                                 </button>
                                             </div>
+                                            {(lesson.logika_group_id || lesson.logika_schedule_id) && <div className="parents-manual-tools">
+                                                <button type="button" className="btn btn-secondary btn-sm"
+                                                    disabled={!!busy || isSending || !!lesson.delivery_status}
+                                                    onClick={() => previewManualReport(lesson)}>Звірити з Logika</button>
+                                                <span className="parents-muted">{absentsByLesson[key] === undefined
+                                                    ? 'Відсутні — з Logika перед відправкою'
+                                                    : 'Відсутні — введені вручну'}</span>
+                                                {absentsByLesson[key] !== undefined && <button type="button" className="btn btn-secondary btn-sm"
+                                                    disabled={isSending} onClick={() => setAbsentsByLesson(prev => {
+                                                        const next = { ...prev }; delete next[key]; return next
+                                                    })}>Брати з Logika</button>}
+                                            </div>}
                                         </div>
                                     </article>
                                 )
@@ -1563,28 +1664,55 @@ function ParentsReport() {
                         </div>
                     </div>
                     <div className="parents-runs-list">
+                        {focusedRun && !loading && !focusedExists && <p className="alert alert-info" role="status">
+                            Звіт зі сповіщення вже видалено або він недоступний.
+                        </p>}
                         {runs.length === 0 ? (
                             <div className="parents-empty">Журнал звітів порожній.</div>
                         ) : runs.map(run => (
-                            <div key={run.id} className="parents-run-row">
+                            <div key={run.id} id={`report-run-${run.id}`} tabIndex={-1}
+                                className={`parents-run-row ${String(run.id) === focusedRun ? 'notification-target' : ''}`}>
                                 <div className={`parents-run-status ${run.status === 'success' ? 'success' : 'error'}`}>
-                                    {{ success: 'OK', sending: 'Надсилання', uncertain: 'Перевірка' }[run.status] || 'ERR'}
+                                    {{ success: 'OK', sending: 'Надсилання', uncertain: 'Перевірка', manual_required: 'Ручне рішення' }[run.status] || 'ERR'}
                                 </div>
                                 <div>
                                     <strong>{run.lesson_group_name}</strong>
                                     <span>
-                                        {formatDateTime(run.created_at)}
+                                        Урок за {formatDateOnly(run.lesson_date)} · {formatDateTime(run.created_at)}
                                         {run.is_auto ? ' · авто' : ' · вручну'}
                                         {run.is_test ? ' · тест' : ''}
+                                        {run.resend_of_run_id ? ' · повторний звіт' : ''}
                                         {run.telegram_group_name ? ` · ${run.telegram_group_name}` : ''}
                                     </span>
                                     {run.error && <p>{run.error}</p>}
                                 </div>
+                                {run.status === 'success' && !run.is_test && run.lesson_id && (
+                                    <button type="button" className="btn btn-secondary btn-sm parents-resend-button"
+                                        onClick={() => setResendRun(run)}>
+                                        Відправити повторно
+                                    </button>
+                                )}
+                                {String(run.id) === focusedRun && <div className="notification-report-detail">
+                                    {run.absents && <p><strong>Відсутні:</strong> {run.absents}</p>}
+                                    <p>{run.message || 'Текст звіту не збережено.'}</p>
+                                </div>}
                             </div>
                         ))}
                     </div>
                 </section>
             )}
+
+            {resendRun && (
+                <ReportResendDialog key={resendRun.id} run={resendRun} onClose={() => setResendRun(null)}
+                    onSent={async result => {
+                        setResendRun(null)
+                        showSuccess(result.already_sent ? 'Цей повторний звіт уже відправлено' : 'Повторний звіт відправлено')
+                        try { await refreshReports() } catch { showError('Звіт відправлено, але журнал не оновився. Натисніть «Оновити».') }
+                    }} />
+            )}
+
+            {scheduleMenu && <LessonContextMenu menu={scheduleMenu} onClose={() => setScheduleMenu(null)}
+                onPostpone={openPostponeModal} onCancel={clearLessonPostpone} onPause={toggleLessonPause} disabled={!!busy} />}
 
             {postponeModal && (
                 <FloatingPanel
@@ -1599,7 +1727,7 @@ function ParentsReport() {
                 >
                         <div className="parents-postpone-popover-header">
                             <div>
-                                <h3 className="modal-title">Перенести урок</h3>
+                                <h3 className="modal-title">{postponeModal.lesson.is_postponed ? 'Редагувати перенесення' : 'Перенести урок'}</h3>
                                 <p className="parents-muted">Виберіть нову дату і час початку перенесеного уроку.</p>
                             </div>
                             <button
@@ -1619,9 +1747,9 @@ function ParentsReport() {
                                     .filter(Boolean)
                                     .join(' · ')}
                             </span>
-                            <span>
-                                Поточна дата уроку: {formatDateOnly(postponeModal.lesson.lesson_run_date)}
-                            </span>
+                            {(postponeModal.lesson.postponed_start_at || postponeModal.lesson.lesson_run_date) && <span>
+                                Поточна дата уроку: {formatDateOnly(postponeModal.lesson.postponed_start_at?.slice(0, 10) || postponeModal.lesson.lesson_run_date)}
+                            </span>}
                         </div>
 
                         <div className="parents-postpone-fields">
@@ -1679,7 +1807,7 @@ function ParentsReport() {
                                 Скасувати
                             </button>
                             <button type="button" className="btn btn-primary" onClick={postponeLesson} disabled={!!busy || !postponeModal.date || !postponeModal.time}>
-                                {busy === `postpone-${postponeModal.lesson.id}` ? 'Переношу...' : 'Перенести'}
+                                {busy === `postpone-${postponeModal.lesson.id}` ? 'Зберігаю...' : 'Зберегти'}
                             </button>
                         </div>
                 </FloatingPanel>

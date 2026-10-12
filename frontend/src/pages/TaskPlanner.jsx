@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -34,7 +35,8 @@ const timeGridEventContent = info => {
     return <div className="planner-calendar-event"><div className="planner-calendar-event-title">{title}</div>{time && <div className="planner-calendar-event-time">{time}</div>}</div>
 }
 
-export default function TaskPlanner({ widget = false }) {
+export default function TaskPlanner() {
+    const location = useLocation()
     const calendar = useRef(null)
     const calendarShell = useRef(null)
     const [bucket, setBucket] = useState('calendar')
@@ -62,7 +64,7 @@ export default function TaskPlanner({ widget = false }) {
     const closeContextMenu = useCallback(() => setContextMenu(null), [])
     const closePreview = useCallback(() => setPreview(null), [])
     useEffect(() => {
-        if (bucket !== 'calendar' || widget || !calendarShell.current) return
+        if (bucket !== 'calendar' || !calendarShell.current) return
         let width = 0, frame
         const observer = new ResizeObserver(entries => {
             const nextWidth = entries[0].contentRect.width
@@ -73,23 +75,28 @@ export default function TaskPlanner({ widget = false }) {
         })
         observer.observe(calendarShell.current)
         return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-    }, [bucket, widget])
+    }, [bucket])
     useEffect(() => { const timer = setTimeout(() => setQuery(search), 250); return () => clearTimeout(timer) }, [search])
     useEffect(() => {
         const controller = new AbortController()
         const params = new URLSearchParams({ bucket, start: range.start, end: range.end, q: query, category, source, completed, limit: 500 })
         setLoading(true)
-        api.get(`/tasks?${params}`, { signal: controller.signal }).then(data => { setItems(data.items); setTotal(data.total) }).catch(err => {
+        api.get(`/tasks?${params}`, { signal: controller.signal }).then(data => {
+            if (controller.signal.aborted) return
+            if (!Array.isArray(data?.items)) throw new Error('Некоректний список задач')
+            setItems(data.items); setTotal(data.total)
+            setError(previous => previous === 'Не вдалося завантажити задачі. Спробуйте оновити список.' ? '' : previous)
+        }).catch(err => {
             if (err.name !== 'AbortError') setError('Не вдалося завантажити задачі. Спробуйте оновити список.')
         }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
         return () => controller.abort()
     }, [bucket, range.start, range.end, query, category, source, completed, refresh])
     useEffect(() => {
-        const update = () => { if (!document.hidden) { if (widget) setRange(previous => ({ ...previous, start: today(), end: DateTime.now().setZone(TZ).plus({ days: 7 }).toISODate() })); changed() } }
+        const update = () => { if (!document.hidden) { changed() } }
         const timer = setInterval(update, 60000)
         window.addEventListener('focus', update)
         return () => { clearInterval(timer); window.removeEventListener('focus', update) }
-    }, [changed, widget])
+    }, [changed])
     const mutate = async (item, values) => {
         setError('')
         try { await api.patch(`/tasks/${item.id}`, { ...values, revision: item.revision }); changed(); return true }
@@ -137,9 +144,40 @@ export default function TaskPlanner({ widget = false }) {
         if (!await mutate(event.extendedProps.item, { date: start.toISODate(), time: event.allDay ? null : start.toFormat('HH:mm'), end_date: (event.allDay ? end.minus({ days: 1 }) : end).toISODate(), end_time: event.allDay ? null : end.toFormat('HH:mm'), timezone: TZ })) info.revert()
     }
     const openEditor = (item, anchor = null) => { setEditorAnchor(anchor); setEditor(item.series_master || item) }
+    useEffect(() => {
+        const params = new URLSearchParams(location.search)
+        const itemId = params.get('item_id')
+        const targetDate = DateTime.fromISO(params.get('date') || '')
+        if (targetDate.isValid && targetDate.toISODate() === params.get('date')) {
+            setSelectedDay(targetDate.toISODate())
+            calendar.current?.getApi().gotoDate(targetDate.toISODate())
+        }
+        if (['overdue', 'reminders'].includes(params.get('bucket'))) {
+            setEditor(null); setPreview(null); setContextMenu(null)
+            setBucket(params.get('bucket'))
+            setSearch(''); setQuery(''); setCategory(''); setSource('')
+            changed()
+        }
+        if (!itemId) return
+        const controller = new AbortController()
+        setError('')
+        api.get(`/tasks/${encodeURIComponent(itemId)}`, { signal: controller.signal }).then(item => {
+            if (controller.signal.aborted) return
+            setBucket('calendar')
+            setSearch(''); setQuery(''); setCategory(''); setSource('')
+            if (item.date) {
+                setSelectedDay(item.date)
+                calendar.current?.getApi().gotoDate(item.date)
+            }
+            openEditor(item)
+        }).catch(err => {
+            if (err.name !== 'AbortError') setError('Задачу зі сповіщення вже видалено або вона недоступна.')
+        })
+        return () => controller.abort()
+    }, [location.key])
     const anchorFromElement = element => { const box = element.getBoundingClientRect(); return { x: box.left, y: box.bottom } }
     const newItem = (date = selectedDay, time = '', anchor = null, kind = 'task') => openEditor({ date, time, kind }, anchor)
-    const rows = bucket === 'calendar' && !widget ? items.filter(item => {
+    const rows = bucket === 'calendar' ? items.filter(item => {
         const start = item.time ? DateTime.fromISO(item.start).setZone(TZ).toISODate() : item.date
         const end = item.time ? DateTime.fromISO(item.end).setZone(TZ).minus({ milliseconds: 1 }).toISODate() : item.end_date
         return start <= selectedDay && end >= selectedDay
@@ -149,15 +187,15 @@ export default function TaskPlanner({ widget = false }) {
         <button className="planner-row-body" onClick={event => openEditor(item, anchorFromElement(event.currentTarget))}><strong>{item.title}</strong><small>{item.date ? `${DateTime.fromISO(item.date).toFormat('dd.LL')} · ${item.time || 'Увесь день'}` : 'Без дати'} · {taskCategories[item.category]}</small><small>{item.read_only ? 'Google · лише перегляд' : syncLabels[item.sync_state] || 'Очікує синхронізації'}</small></button>
         {item.kind === 'event' && !item.deleted_at && <button className="planner-prepare" title="Створити задачу підготовки" onClick={event => openEditor({ title: `Підготовка: ${item.title}`, category: 'preparation', parent_id: item.id, date: DateTime.fromISO(item.date).minus({ days: 1 }).toISODate() }, anchorFromElement(event.currentTarget))}>+ Підготовка</button>}
     </article>
-    return <div className={`planner ${widget ? 'planner-widget' : ''}`}>
-        <header className="page-header"><div><h2>{widget ? 'Мої задачі' : 'Задачник'}</h2><p>{widget ? 'Найближчі 7 днів' : 'Уроки, підготовка та особисті справи'}</p></div><div className="planner-actions"><RefreshButton onClick={changed} busy={loading} />{!widget && <button className="btn btn-secondary" onClick={async () => { if (window.pywebview?.api?.open_task_widget) await window.pywebview.api.open_task_widget(); else window.open('/tasks/widget', 'school-manager-tasks', 'width=380,height=560') }}>Віджет</button>}<button className="btn btn-primary" onClick={event => newItem(selectedDay, '', anchorFromElement(event.currentTarget))}>+ {widget ? 'Задача' : 'Створити'}</button></div></header>
-        {widget ? <button className="planner-open-main" onClick={async () => { if (window.pywebview?.api?.open_planner) await window.pywebview.api.open_planner(); else window.open('/tasks', 'school-manager-main') }}>Відкрити повний задачник ↗</button> : <PlannerGoogle onChanged={changed} />}
-        <div className="planner-toolbar"><div className="planner-tabs" role="group" aria-label="Розділ задачника">{[['calendar', 'Календар'], ['undated', 'Без дати'], ['overdue', 'Прострочені'], ['trash', 'Кошик']].map(([key, label]) => <button key={key} className={key === bucket ? 'active' : ''} onClick={() => setBucket(key)}>{label}</button>)}</div>{!widget && <><input aria-label="Пошук задач" placeholder="Знайти задачу…" value={search} onChange={e => setSearch(e.target.value)} /><AppSelect menuClassName="planner-filter-menu" className="planner-filter-select" ariaLabel="Категорія задач" value={category} onChange={setCategory} options={[{ value: '', label: 'Усі категорії' }, ...Object.entries(taskCategories).map(([value, label]) => ({ value, label }))]} /><AppSelect menuClassName="planner-filter-menu" className="planner-filter-select" ariaLabel="Джерело задач" value={source} onChange={setSource} options={[{ value: '', label: 'Усі джерела' }, { value: 'local', label: 'Створені тут' }, { value: 'google', label: 'Із Google' }]} /><button type="button" className="planner-completed-toggle" role="switch" aria-checked={completed} onClick={() => setCompleted(value => !value)}><span className="planner-completed-track"><span className="planner-completed-thumb" /></span><span>Виконані</span></button></>}</div>
+    return <div className="planner">
+        <header className="page-header"><div><h2>Задачник</h2><p>Уроки, підготовка та особисті справи</p></div><div className="planner-actions"><RefreshButton onClick={changed} busy={loading} /><button className="btn btn-primary" onClick={event => newItem(selectedDay, '', anchorFromElement(event.currentTarget))}>+ Створити</button></div></header>
+        <PlannerGoogle onChanged={changed} />
+        <div className="planner-toolbar"><div className="planner-tabs" role="group" aria-label="Розділ задачника">{[['calendar', 'Календар'], ['undated', 'Без дати'], ['overdue', 'Прострочені'], ['reminders', 'Пропущені нагадування'], ['trash', 'Кошик']].map(([key, label]) => <button key={key} className={key === bucket ? 'active' : ''} onClick={() => setBucket(key)}>{label}</button>)}</div><><input aria-label="Пошук задач" placeholder="Знайти задачу…" value={search} onChange={e => setSearch(e.target.value)} /><AppSelect menuClassName="planner-filter-menu" className="planner-filter-select" ariaLabel="Категорія задач" value={category} onChange={setCategory} options={[{ value: '', label: 'Усі категорії' }, ...Object.entries(taskCategories).map(([value, label]) => ({ value, label }))]} /><AppSelect menuClassName="planner-filter-menu" className="planner-filter-select" ariaLabel="Джерело задач" value={source} onChange={setSource} options={[{ value: '', label: 'Усі джерела' }, { value: 'local', label: 'Створені тут' }, { value: 'google', label: 'Із Google' }]} /><button type="button" className="planner-completed-toggle" role="switch" aria-checked={completed} onClick={() => setCompleted(value => !value)}><span className="planner-completed-track"><span className="planner-completed-thumb" /></span><span>Виконані</span></button></></div>
         {error && <p className="planner-error" role="alert">{error}</p>}
         {total > 500 && <p className="planner-error">Показано перші 500 записів. Уточніть пошук або період.</p>}
-        <div className={`planner-layout ${bucket !== 'calendar' || widget ? 'planner-list-layout' : ''}`} aria-busy={loading}>
-            {bucket === 'calendar' && !widget && <section ref={calendarShell} className={`planner-calendar ${view === 'dayGridMonth' ? 'planner-calendar--month' : ''}`} aria-label="Календар задач"><div className="planner-calendar-toolbar"><div className="planner-actions"><button className="btn btn-secondary" aria-label="Попередній період" onClick={() => calendar.current.getApi().prev()}>‹</button><button className="btn btn-secondary" onClick={() => { calendar.current.getApi().today(); setSelectedDay(today()) }}>Сьогодні</button><button className="btn btn-secondary" aria-label="Наступний період" onClick={() => calendar.current.getApi().next()}>›</button></div><strong>{range.title}</strong><AppSelect menuClassName="planner-filter-menu" className="planner-filter-select planner-view-select" ariaLabel="Вигляд календаря" value={view} onChange={value => { setView(value); calendar.current.getApi().changeView(value) }} options={[{ value: 'timeGridWeek', label: 'Тиждень' }, { value: 'dayGridMonth', label: 'Місяць' }, { value: 'listMonth', label: 'Список' }]} /></div>
-                <FullCalendar ref={calendar} plugins={plugins} locale={ukLocale} timeZone={TZ} initialView={view} views={{ timeGridWeek: { eventContent: timeGridEventContent } }} firstDay={1} headerToolbar={false} height={view === 'dayGridMonth' ? 'auto' : 'clamp(360px, calc(100vh - 280px), 760px)'} nowIndicator eventInteractive eventMinHeight={28} eventShortHeight={36} displayEventEnd={false} eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }} editable eventDurationEditable slotLabelInterval="01:00:00" slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }} slotMinTime="06:00:00" slotMaxTime="24:00:00" scrollTime="09:00:00" allDayText="Весь день" dayMaxEvents={view === 'dayGridMonth' ? 3 : false} events={events}
+        <div className={`planner-layout ${bucket !== 'calendar' ? 'planner-list-layout' : ''}`} aria-busy={loading}>
+            {bucket === 'calendar' && <section ref={calendarShell} className={`planner-calendar ${view === 'dayGridMonth' ? 'planner-calendar--month' : ''}`} aria-label="Календар задач"><div className="planner-calendar-toolbar"><div className="planner-actions"><button className="btn btn-secondary" aria-label="Попередній період" onClick={() => calendar.current.getApi().prev()}>‹</button><button className="btn btn-secondary" onClick={() => { calendar.current.getApi().today(); setSelectedDay(today()) }}>Сьогодні</button><button className="btn btn-secondary" aria-label="Наступний період" onClick={() => calendar.current.getApi().next()}>›</button></div><strong>{range.title}</strong><AppSelect menuClassName="planner-filter-menu" className="planner-filter-select planner-view-select" ariaLabel="Вигляд календаря" value={view} onChange={value => { setView(value); calendar.current.getApi().changeView(value) }} options={[{ value: 'timeGridWeek', label: 'Тиждень' }, { value: 'dayGridMonth', label: 'Місяць' }, { value: 'listMonth', label: 'Список' }]} /></div>
+                <FullCalendar ref={calendar} initialDate={selectedDay} plugins={plugins} locale={ukLocale} timeZone={TZ} initialView={view} views={{ timeGridWeek: { eventContent: timeGridEventContent } }} firstDay={1} headerToolbar={false} height={view === 'dayGridMonth' ? 'auto' : 'clamp(360px, calc(100vh - 280px), 760px)'} nowIndicator eventInteractive eventMinHeight={28} eventShortHeight={36} displayEventEnd={false} eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }} editable eventDurationEditable slotLabelInterval="01:00:00" slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }} slotMinTime="06:00:00" slotMaxTime="24:00:00" scrollTime="09:00:00" allDayText="Весь день" dayMaxEvents={view === 'dayGridMonth' ? 3 : false} events={events}
                     datesSet={info => { const start = info.startStr.slice(0, 10), end = info.endStr.slice(0, 10); setRange({ start, end, title: info.view.title }); setSelectedDay(day => day >= start && day < end ? day : start) }}
                     dateClick={info => { const value = DateTime.fromJSDate(info.date).setZone(TZ); setSelectedDay(value.toISODate()); newItem(value.toISODate(), info.allDay ? '' : value.toFormat('HH:mm'), { x: info.jsEvent.clientX, y: info.jsEvent.clientY }, 'event') }}
                     dayCellClassNames={info => DateTime.fromJSDate(info.date).setZone(TZ).toISODate() === selectedDay ? ['planner-selected-day'] : []}
@@ -189,7 +227,7 @@ export default function TaskPlanner({ widget = false }) {
                         setPreview({ itemId: info.event.id, anchor: { left: box.left, right: box.right, top: box.top } })
                     }} eventDrop={drop} eventResize={drop} eventAllow={(_, event) => !event.extendedProps.item.read_only && !event.extendedProps.item.recurrence?.length} />
             </section>}
-            <aside className="planner-day"><header><h3>{bucket === 'calendar' && !widget ? DateTime.fromISO(selectedDay).setLocale('uk').toFormat('cccc, d MMMM') : ({ calendar: 'Найближчі справи', undated: 'Без дати', overdue: 'Потребують уваги', trash: 'Видалені задачі' })[bucket]}</h3><span>{rows.length}</span></header>{rows.map(row)}{!rows.length && <div className="planner-empty"><p>{loading ? 'Завантаження…' : bucket === 'trash' ? 'Кошик порожній' : 'Тут поки немає задач'}</p>{bucket !== 'trash' && <button className="btn btn-secondary" onClick={event => newItem(bucket === 'undated' ? '' : selectedDay, '', anchorFromElement(event.currentTarget))}>+ Додати задачу</button>}</div>}</aside>
+            <aside className="planner-day"><header><h3>{bucket === 'calendar' ? DateTime.fromISO(selectedDay).setLocale('uk').toFormat('cccc, d MMMM') : ({ calendar: 'Найближчі справи', undated: 'Без дати', overdue: 'Потребують уваги', reminders: 'Пропущені нагадування', trash: 'Видалені задачі' })[bucket]}</h3><span>{rows.length}</span></header>{rows.map(row)}{!rows.length && <div className="planner-empty"><p>{loading ? 'Завантаження…' : bucket === 'trash' ? 'Кошик порожній' : 'Тут поки немає задач'}</p>{bucket !== 'trash' && <button className="btn btn-secondary" onClick={event => newItem(bucket === 'undated' ? '' : selectedDay, '', anchorFromElement(event.currentTarget))}>+ Додати задачу</button>}</div>}</aside>
         </div>
         {previewItem && <PlannerEventPreview item={previewItem} anchor={preview.anchor} color={previewItem.color || categoryColors[previewItem.category]} busy={contextBusy} onEdit={event => { const anchor = anchorFromElement(event.currentTarget); closePreview(); openEditor(previewItem, anchor) }} onDelete={() => deleteFromContext(previewItem)} onMore={event => { const box = event.currentTarget.getBoundingClientRect(); setContextMenu({ itemId: previewItem.occurrence_id || previewItem.id, x: box.left, y: box.bottom + 6 }); closePreview() }} onClose={closePreview} />}
         {contextItem && <PlannerEventMenu item={contextItem} x={contextMenu.x} y={contextMenu.y} busy={contextBusy} onColor={color => updateEventColor(contextItem, color)} onDelete={() => deleteFromContext(contextItem)} onClose={closeContextMenu} />}

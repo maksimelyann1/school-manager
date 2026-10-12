@@ -4,6 +4,8 @@ import hashlib
 import json
 import random
 import time
+import traceback
+from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -392,10 +394,14 @@ async def sync_google(force=False):
     async with sync_lock:
         db = SessionLocal()
         api = None
+        stage = 'оновлення доступу'
+        context_id = None
         try:
-            connection = db.query(PlannerConnection).filter(PlannerConnection.state.in_(['connected', 'error'] if force else ['connected'])).first()
+            connection = db.query(PlannerConnection).filter(PlannerConnection.state.in_(['connected', 'error', 'reauth'])).first()
             if not connection:
                 return {'state': 'disconnected'}
+            if connection.state == 'reauth':
+                return {'state': 'reauth', 'error': 'Доступ Google завершився. Підключіть акаунт повторно'}
             now = utc_now()
             if not force and connection.next_sync_at and connection.next_sync_at > now:
                 return {'state': 'waiting'}
@@ -403,6 +409,7 @@ async def sync_google(force=False):
             calendars = db.query(PlannerCalendar).filter_by(connection_id=connection.id).all()
             for calendar in calendars:
                 if calendar.managed or calendar.visible:
+                    stage, context_id = 'читання календаря', calendar.id
                     await pull_calendar(db, api, calendar)
             if calendars:
                 jobs = db.query(PlannerSyncJob).filter(PlannerSyncJob.state.notin_(['conflict', 'error']),
@@ -418,6 +425,7 @@ async def sync_google(force=False):
                         if not calendar or not (calendar.managed or calendar.writable):
                             continue
                         try:
+                            stage, context_id = 'відправка зміни події', job.id
                             await push_job(db, api, calendar, job)
                         except GoogleError as err:
                             if err.status != 400:
@@ -443,14 +451,22 @@ async def sync_google(force=False):
         except Exception as err:
             db.rollback()
             from logger import log_event
-            status = err.status if isinstance(err, GoogleError) else err.status_code if isinstance(err, HTTPException) else 0
+            status = (err.status if isinstance(err, GoogleError) else err.status_code if isinstance(err, HTTPException)
+                      else err.response.status_code if isinstance(err, httpx.HTTPStatusError) else 0)
+            rate_limited = status == 429 or (status == 403 and isinstance(err, GoogleError) and
+                any(reason in err.reason.lower() for reason in ('quota', 'rate limit', 'ratelimit')))
             message = ('Доступ Google завершився. Підключіть акаунт повторно' if status == 401 else
-                'Google тимчасово обмежив запити. Синхронізація повториться пізніше' if status in {403, 429} else
+                'Google тимчасово обмежив запити. Синхронізація повториться пізніше' if rate_limited else
+                'Google не дозволив доступ до календаря. Оновіть дозволи або список календарів' if status == 403 else
+                err.detail if isinstance(err, HTTPException) and status == 503 else
                 'Не вдалося синхронізувати Google Календар. Зміни збережено на комп’ютері')
             connection = db.query(PlannerConnection).filter(PlannerConnection.state.in_(['connected', 'error'])).first()
             if connection:
                 if connection.last_error != message:
-                    log_event('ERROR', 'Planner', f'{message} ({type(err).__name__}, HTTP {status})')
+                    frames = traceback.extract_tb(err.__traceback__)[-4:]
+                    location = ' > '.join(f'{Path(frame.filename).name}:{frame.lineno}:{frame.name}' for frame in frames)
+                    log_event('ERROR', 'Planner', f'{message}. Етап: {stage}, ID {context_id or "-"}; '
+                              f'{type(err).__module__}.{type(err).__name__}, HTTP {status}; {location}')
                 connection.last_error = message
                 connection.sync_attempts += 1
                 delay = min(3600, 60 * 2 ** min(connection.sync_attempts, 6)) + random.randint(0, 30)
@@ -459,7 +475,6 @@ async def sync_google(force=False):
                     connection.state = 'reauth'
                 elif connection.sync_attempts >= 6:
                     connection.state = 'error'
-                    connection.last_error += '. Автоповтори призупинено; натисніть «Синхронізувати»'
                 db.commit()
             return {'state': 'error', 'error': message}
         finally:

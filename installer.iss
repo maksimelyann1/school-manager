@@ -1,6 +1,6 @@
 [Setup]
 AppName=School Manager
-AppVersion=2.11
+AppVersion=2.12
 DefaultDirName={autopf}\SchoolManager
 DefaultGroupName=School Manager
 UninstallDisplayIcon={app}\SchoolManager.exe
@@ -35,6 +35,11 @@ Source: "dist\SchoolManager\*"; DestDir: "{app}"; Excludes: "*.db,*.db-shm,*.db-
 Name: "{autoprograms}\School Manager"; Filename: "{app}\SchoolManager.exe"
 Name: "{autodesktop}\School Manager"; Filename: "{app}\SchoolManager.exe"; Tasks: desktopicon
 
+[Registry]
+Root: HKA; Subkey: "Software\Classes\schoolmanager"; ValueType: string; ValueData: "URL:School Manager"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\schoolmanager"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\schoolmanager\shell\open\command"; ValueType: string; ValueData: """{app}\SchoolManager.exe"" --notification-url ""%1"""
+
 [Run]
 Filename: "{app}\SchoolManager.exe"; Description: "{cm:LaunchProgram,School Manager}"; Flags: nowait postinstall runasoriginaluser; Check: not WizardSilent
 Filename: "{app}\SchoolManager.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
@@ -66,12 +71,16 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: string;
+  ProtocolCommand: string;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'SchoolManager');
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', 'SchoolManager');
     RegDeleteValue(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Run', 'SchoolManager');
+    if RegQueryStringValue(HKEY_CURRENT_USER, 'Software\Classes\schoolmanager\shell\open\command', '', ProtocolCommand) then
+      if Pos('"' + ExpandConstant('{app}\SchoolManager.exe') + '"', ProtocolCommand) = 1 then
+        RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\schoolmanager');
 
     if DeleteUserDataOnUninstall then
     begin

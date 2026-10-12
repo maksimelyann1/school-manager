@@ -82,7 +82,10 @@ function AppContextMenu() {
     useEffect(() => {
         const close = () => setMenu(null)
         const onContextMenu = (event) => {
-            if (event.defaultPrevented) return
+            if (event.defaultPrevented) {
+                close()
+                return
+            }
 
             event.preventDefault()
             const target = event.target

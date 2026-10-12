@@ -22,6 +22,30 @@ DEFAULT_HEADERS = {
 }
 
 
+def parse_attendance(records, schedule_id):
+    """Перевіряє журнал конкретного заняття та прибирає дублікати учнів."""
+    if not isinstance(records, list):
+        raise ValueError("Logika повернула некоректний журнал відвідування")
+    students = {}
+    for record in records:
+        if not isinstance(record, dict) or str(record.get("scheduleId")) != str(schedule_id):
+            raise ValueError("Журнал Logika містить відвідування іншого заняття або не має ID заняття")
+        student = record.get("studentId")
+        if not isinstance(student, dict) or not student.get("key"):
+            raise ValueError("У журналі Logika не вдалося визначити учня")
+        key = str(student["key"])
+        state = str(record.get("state") or "").strip().upper()
+        if key in students and students[key]["state"] != state:
+            raise ValueError("У журналі Logika суперечливі відмітки одного учня")
+        students[key] = {**record, "state": state}
+    return list(students.values())
+
+
+def absent_student_names(records):
+    return [name for record in records if record["state"] in {"ABSENT", "MISSED"}
+            if (name := str(record["studentId"].get("value") or "").strip())]
+
+
 class LogikaAuthError(Exception):
     """Помилка авторизації Logika."""
     pass
@@ -238,7 +262,10 @@ class LogikaClient:
                 raise Exception("Logika повторює сторінку розкладу; не вдалося завантажити всі заняття")
             seen_ids.update(ids)
             lessons.extend(items)
-            if len(items) < 100 or data.get("last") is True:
+            total_pages = data.get("totalPages")
+            if data.get("last") is True or (isinstance(total_pages, int) and page + 1 >= total_pages):
+                break
+            if data.get("last") is not False and total_pages is None and len(items) < 100:
                 break
             page += 1
         return lessons
@@ -252,18 +279,8 @@ class LogikaClient:
         )
         if resp.status_code != 200:
             raise Exception(f"Не вдалося отримати журнал уроку {schedule_id}: HTTP {resp.status_code}")
-        return resp.json()
+        return parse_attendance(resp.json(), schedule_id)
 
     def get_absent_students(self, schedule_id: int) -> List[str]:
         """Повертає список імен учнів, які були відсутні на уроці."""
-        records = self.get_attendance(schedule_id)
-        absents = []
-        for r in records:
-            state = (r.get("state") or "").upper()
-            # Учні зі статусом ABSENT
-            if state in ("ABSENT", "MISSED"):
-                student_info = r.get("studentId") or {}
-                name = student_info.get("value") or ""
-                if name.strip():
-                    absents.append(name.strip())
-        return absents
+        return absent_student_names(self.get_attendance(schedule_id))

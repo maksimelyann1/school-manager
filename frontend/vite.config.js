@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
     plugins: [react()],
     build: {
+        rollupOptions: { input: { app: 'index.html', widgets: 'widgets.html' } },
         outDir: 'dist-new',
         emptyOutDir: false,
     },

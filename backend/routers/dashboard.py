@@ -11,19 +11,22 @@ from routers.parents_report import (
     _get_or_create_settings,
     _telegram_group_for_lesson,
     KYIV_TZ,
-    WEEKDAY_MAP,
-    _normalize_day,
-    _normalize_time,
+    _lesson_schedule_context,
+    _lesson_date_is_closed,
+    _blocking_report_run,
+    _manual_report_runs,
 )
-from datetime import date, time, timedelta
+from datetime import timedelta
 from pyrogram_client import pyrogram_manager
 from routers.auto_messages import _next_target_datetime
 
 router = APIRouter(prefix="/dashboard", tags=["Дашборд"])
 
 def get_time_left_str(target_dt: datetime) -> str:
-    now = datetime.now()
+    now = datetime.now(target_dt.tzinfo)
     diff = target_dt - now
+    if diff.total_seconds() <= 0:
+        return "Очікує відправки"
     days = diff.days
     seconds = diff.seconds
     hours = seconds // 3600
@@ -117,6 +120,9 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
             "lesson_date": str(item.get("lesson_date") or ""),
             "start_time": item.get("start_time") or "",
             "absents": item.get("absents") or "",
+            "lesson_run_date": item.get("lesson_run_date") or "",
+            "manual_required": bool(item.get("manual_required")),
+            "manual_reason": item.get("manual_reason") or "",
         })
 
     # Найближчий автозвіт
@@ -125,22 +131,25 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         now_kyiv = datetime.now(KYIV_TZ)
         upcoming_reports = []
         all_lessons = db.query(ParentReportLesson).all()
+        manual_dates = {(run.lesson_id, run.lesson_date) for run in _manual_report_runs(db)}
         for l in all_lessons:
-            day = _normalize_day(l.day or "")
-            weekday = WEEKDAY_MAP.get(day)
-            if weekday is None: continue
-            start_time_str = _normalize_time(l.start_time or "")
-            try:
-                h, m = [int(x) for x in start_time_str.split(":", 1)]
-            except Exception: continue
-            duration = l.duration_minutes or 90
-            days_ahead = (weekday - now_kyiv.weekday()) % 7
-            cand_date = now_kyiv.date() + timedelta(days=days_ahead)
-            cand_start = datetime.combine(cand_date, time(h, m), tzinfo=KYIV_TZ)
-            cand_report_time = cand_start + timedelta(minutes=duration + delay_min)
-            if cand_report_time <= now_kyiv:
-                cand_report_time += timedelta(days=7)
-                cand_start += timedelta(days=7)
+            if l.is_paused:
+                continue
+            schedule = _lesson_schedule_context(l, p_settings, include_report_delay=True)
+            if not schedule:
+                continue
+            cand_start = schedule["start_dt"]
+            cand_report_time = schedule["available_at"]
+            if schedule["is_postponed"]:
+                if (_lesson_date_is_closed(l, schedule["lesson_date"])
+                        or _blocking_report_run(db, l, schedule["lesson_date"])
+                        or (l.id, schedule["lesson_date"].isoformat()) in manual_dates):
+                    continue
+            else:
+                while (cand_report_time <= now_kyiv or _lesson_date_is_closed(l, cand_start.date())
+                       or (l.id, cand_start.date().isoformat()) in manual_dates):
+                    cand_report_time += timedelta(days=7)
+                    cand_start += timedelta(days=7)
             tg = _telegram_group_for_lesson(db, l)
             upcoming_reports.append({
                 "lesson_id": l.id,
@@ -151,7 +160,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
                 "lesson_code": l.lesson_code or "",
                 "lesson_start": cand_start.isoformat(),
                 "report_time": cand_report_time.isoformat(),
-                "time_left": get_time_left_str(cand_report_time.replace(tzinfo=None)),
+                "time_left": get_time_left_str(cand_report_time),
                 "report_dt": cand_report_time,
             })
         if upcoming_reports:

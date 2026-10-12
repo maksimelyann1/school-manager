@@ -152,12 +152,14 @@ class LauncherProgressTests(unittest.TestCase):
         window.get_current_url.return_value = "about:blank"
         with patch.object(self.launcher, "_window", window), \
              patch.object(self.launcher, "_splash_window", splash), \
+             patch.object(self.launcher, "_get_widget_manager") as widgets, \
              patch.object(self.launcher, "log_launcher"):
             self.launcher._on_interface_loaded()
             splash.destroy.assert_not_called()
             window.get_current_url.return_value = "http://127.0.0.1:8001/"
             self.launcher._on_interface_loaded()
             splash.destroy.assert_called_once()
+            widgets.return_value.start.assert_called_once()
 
 
 if __name__ == "__main__":

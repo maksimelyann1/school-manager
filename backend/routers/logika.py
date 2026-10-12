@@ -203,6 +203,8 @@ async def sync_schedule(db: Session = Depends(get_db)):
 
 
 async def _sync_schedule(db: Session):
+    from routers.parents_report import KYIV_TZ, _parse_iso_datetime
+
     settings = get_or_create_logika_settings(db)
     client = get_authenticated_client(settings, db, authenticate=False)
 
@@ -248,7 +250,7 @@ async def _sync_schedule(db: Session):
             if g_key not in groups_map:
                 groups_map[g_key] = g_name
 
-        today = datetime.now().date()
+        today = datetime.now(KYIV_TZ).date()
         synced_count = 0
         updated_count = 0
 
@@ -262,79 +264,48 @@ async def _sync_schedule(db: Session):
             if not all_group_lessons:
                 continue
 
-            # Сортуємо уроки групи хронологічно
-            all_group_lessons.sort(key=lambda x: x.get("start") or "")
-
-            # Визначаємо поточний або найближчий урок
-            target_lesson = None
-            for it in all_group_lessons:
-                if it.get("start"):
-                    try:
-                        d = datetime.fromisoformat(it["start"]).date()
-                        if d == today:
-                            target_lesson = it
-                            break
-                    except Exception:
-                        pass
-
-            if not target_lesson:
-                for it in all_group_lessons:
-                    if it.get("start"):
-                        try:
-                            d = datetime.fromisoformat(it["start"]).date()
-                            if d >= today:
-                                target_lesson = it
-                                break
-                        except Exception:
-                            pass
-
-            if not target_lesson and all_group_lessons:
-                target_lesson = all_group_lessons[-1]
-
-            if not target_lesson:
+            dated_lessons = []
+            for item in all_group_lessons:
+                start = _parse_iso_datetime(item.get("start"))
+                status = str(item.get("lessonStatus") or item.get("status") or "").upper()
+                if not start or not item.get("id") or item.get("deleted") or status in {"CANCEL", "CANCELED", "CANCELLED", "DELETED"}:
+                    continue
+                if str((item.get("group") or {}).get("key")) != str(g_key):
+                    continue
+                if settings.teacher_id and str((item.get("teacher") or {}).get("key")) != str(settings.teacher_id):
+                    continue
+                dated_lessons.append((item, start))
+            if not dated_lessons:
                 continue
+            dated_lessons.sort(key=lambda pair: pair[1])
+            target_lesson, dt = next(
+                (pair for pair in dated_lessons if pair[1].date() >= today), dated_lessons[-1],
+            )
 
             schedule_id = target_lesson.get("id")
             lesson_title = (target_lesson.get("lesson", {}).get("value") or "").strip()
             lesson_code_str = _extract_lesson_code(lesson_title)
 
-            start_iso = target_lesson.get("start")
-            day_str = ""
-            start_time_str = ""
-            if start_iso:
-                try:
-                    dt = datetime.fromisoformat(start_iso)
-                    day_str = UKR_DAYS.get(dt.weekday(), "")
-                    start_time_str = dt.strftime("%H:%M")
-                except Exception:
-                    pass
+            day_str = UKR_DAYS.get(dt.weekday(), "")
+            start_time_str = dt.strftime("%H:%M")
 
             duration_sec = target_lesson.get("duration") or 5400
             duration_min = max(30, duration_sec // 60)
 
-            # Отримуємо відсутніх ТІЛЬКИ якщо урок уже відбувся і в Logika є фактичні відмітки
-            absents_str = None
-            attended = target_lesson.get("attendedAmount") or 0
-            if target_lesson.get("lessonStatus") == "FINISH" or attended > 0:
-                try:
-                    absents_list = await asyncio.to_thread(client.get_absent_students, schedule_id)
-                    if absents_list:
-                        absents_str = ", ".join(absents_list)
-                except Exception as e:
-                    log_event("WARNING", "Logika", f"Не вдалося отримати відсутніх для уроку {schedule_id}: {e}")
-
-            # Шукаємо існуючий рядок розкладу (за logika_group_id, group_name або schedule_id)
-            existing = (
-                db.query(ParentReportLesson)
-                .filter(
-                    (ParentReportLesson.logika_group_id == g_key) |
+            matches = db.query(ParentReportLesson).filter(ParentReportLesson.logika_group_id == g_key).all()
+            if not matches:
+                matches = db.query(ParentReportLesson).filter(
+                    ParentReportLesson.logika_group_id.is_(None),
                     (ParentReportLesson.group_name == g_name) |
-                    (ParentReportLesson.logika_schedule_id == schedule_id)
-                )
-                .first()
-            )
+                    (ParentReportLesson.logika_schedule_id == schedule_id),
+                ).all()
+            if len(matches) > 1:
+                log_event("WARNING", "Logika", f"Групу '{g_name}' не оновлено: знайдено декілька рядків розкладу з однаковим зв'язком")
+                continue
+            existing = matches[0] if matches else None
 
             if existing:
+                db.refresh(existing)
                 # 1. Завжди підтримуємо системний зв'язок з Logika
                 existing.logika_group_id = g_key
                 existing.logika_schedule_id = schedule_id
@@ -346,10 +317,6 @@ async def _sync_schedule(db: Session):
                 # 3. Базову назву уроку оновлюємо тільки якщо тема ще порожня
                 if lesson_title and not existing.lesson_title:
                     existing.lesson_title = lesson_title
-
-                # 4. Відсутні: оновлюємо ТІЛЬКИ якщо є фактичні відмітки (НЕ ЗАТИРАЄМО існуючих!)
-                if absents_str:
-                    existing.absents = absents_str
 
                 # 5. День і час: НЕ збиваємо налаштування користувача, заповнюємо тільки якщо порожні
                 if not existing.day and day_str:
@@ -397,7 +364,7 @@ async def _sync_schedule(db: Session):
                     logika_schedule_id=schedule_id,
                     logika_group_id=g_key,
                     telegram_group_id=tg_id,
-                    absents=absents_str or "",
+                    absents="",
                     imported_at=datetime.now().isoformat(),
                 )
                 db.add(new_lesson)

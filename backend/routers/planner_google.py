@@ -47,6 +47,7 @@ def status(db: Session = Depends(get_db)):
     calendars = db.query(PlannerCalendar).filter_by(connection_id=connection.id).all() if connection else []
     return {'configured': configured, 'config_path': str(config_path()), 'oauth_state': oauth.state, 'oauth_error': oauth.error,
         'connection': {'email': connection.email, 'state': connection.state, 'last_sync_at': connection.last_sync_at,
+            'next_sync_at': connection.next_sync_at, 'sync_attempts': connection.sync_attempts,
             'error': connection.last_error, 'events_write': bool(connection.events_write)} if connection else None,
         'calendars': [{'id': c.id, 'name': c.name, 'managed': bool(c.managed), 'visible': bool(c.visible),
             'writable': bool(c.writable or c.managed), 'access_role': c.access_role} for c in calendars]}

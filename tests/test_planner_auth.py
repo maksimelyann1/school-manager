@@ -87,6 +87,56 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
                         await auth.access_token('account')
                     self.assertEqual(error.exception.status_code, 401)
 
+    async def test_refresh_discards_id_token_and_preserves_background_authorization(self):
+        old = {'access_token': 'old', 'refresh_token': 'refresh', 'expires_at': 0, 'scope': auth.EVENTS_SCOPE}
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, json={
+            'access_token': 'new', 'id_token': 'x' * 1800, 'token_type': 'Bearer', 'expires_in': 3600}))
+        real_client = httpx.AsyncClient
+        with patch.object(auth, 'load_token', return_value=old), \
+             patch.object(auth.httpx, 'AsyncClient', side_effect=lambda **kw: real_client(transport=transport, **kw)):
+            self.assertEqual(await auth.access_token('account'), 'new')
+        saved = self.save.call_args.args[1]
+        self.assertNotIn('id_token', saved)
+        self.assertNotIn('token_type', saved)
+        self.assertEqual(saved['refresh_token'], 'refresh')
+        self.assertEqual(saved['scope'], auth.EVENTS_SCOPE)
+
+    async def test_concurrent_requests_refresh_once(self):
+        store = {'access_token': 'old', 'refresh_token': 'refresh', 'expires_at': 0}
+        requests = []
+        async def refresh(request):
+            requests.append(request)
+            await asyncio.sleep(.02)
+            return httpx.Response(200, json={'access_token': 'new', 'expires_in': 3600})
+        real_client = httpx.AsyncClient
+        with patch.object(auth, 'refresh_lock', asyncio.Lock()), \
+             patch.object(auth, 'load_token', side_effect=lambda account: store.copy()), \
+             patch.object(auth, 'save_token', side_effect=lambda account, value: store.update(value)), \
+             patch.object(auth.httpx, 'AsyncClient', side_effect=lambda **kw: real_client(transport=httpx.MockTransport(refresh), **kw)):
+            self.assertEqual(await asyncio.gather(*(auth.access_token('account') for _ in range(3))), ['new'] * 3)
+        self.assertEqual(len(requests), 1)
+
+
+class TokenStorageTests(unittest.TestCase):
+    def test_windows_vault_never_receives_unused_oauth_fields(self):
+        storage = Mock()
+        with patch.object(auth, 'vault', return_value=storage):
+            auth.save_token('account', {'access_token': 'a' * 240, 'refresh_token': 'r' * 100,
+                'expires_at': time.time() + 3600, 'scope': ' '.join(auth.SCOPES), 'id_token': 'x' * 1800})
+        value = storage.set_password.call_args.args[2]
+        self.assertLess(len(value.encode('utf-16-le')), 2560)
+        self.assertNotIn('id_token', json.loads(value))
+
+    def test_storage_failure_has_a_readable_message_and_no_secret_in_logs(self):
+        storage = Mock()
+        storage.set_password.side_effect = OSError('PRIVATE TOKEN')
+        with patch.object(auth, 'vault', return_value=storage), patch('logger.log_event') as log:
+            with self.assertRaises(auth.HTTPException) as error:
+                auth.save_token('account', {'access_token': 'SECRET'})
+        self.assertEqual(error.exception.status_code, 503)
+        self.assertNotIn('SECRET', repr(log.call_args))
+        self.assertNotIn('PRIVATE', repr(log.call_args))
+
 
 class PlannerEdgeTests(PlannerFixture):
     def test_deleted_parent_does_not_block_preparation(self):

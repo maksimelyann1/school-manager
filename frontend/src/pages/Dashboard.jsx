@@ -481,7 +481,7 @@ export default function Dashboard() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '360px', overflowY: 'auto' }}>
                                 {stats.reports_info.pending_reports.map((item) => (
                                     <div
-                                        key={item.id}
+                                        key={`${item.id}:${item.lesson_run_date}`}
                                         style={{
                                             padding: '10px 12px',
                                             background: 'var(--bg-input, rgba(255,255,255,0.03))',
@@ -502,9 +502,12 @@ export default function Dashboard() {
                                                 {item.start_time} • {item.lesson_date}
                                                 {item.mapping_ready ? ` • ${item.telegram_group_name}` : ' • ⚠️ TG не вибрано'}
                                             </div>
+                                            {item.manual_required && <div style={{ fontSize: '0.8rem', color: 'var(--warning)', marginTop: '4px' }}>
+                                                Ручне рішення: {item.manual_reason}
+                                            </div>}
                                         </div>
                                         <Link
-                                            to="/parents-report"
+                                            to={`/parents-report?tab=pending&lesson_id=${item.id}&lesson_date=${item.lesson_run_date}`}
                                             className="btn btn-secondary btn-sm"
                                             style={{ whiteSpace: 'nowrap', fontSize: '0.8rem', padding: '4px 10px' }}
                                         >

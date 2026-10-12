@@ -23,14 +23,20 @@ export function buildApiUrl(path) {
 async function readResponseBody(response) {
     const contentType = response.headers.get('content-type') || ''
     if (contentType.includes('application/json')) {
-        return response.json().catch(() => ({}))
+        try {
+            return await response.json()
+        } catch (error) {
+            if (error.name === 'AbortError') throw error
+            throw new Error('Сервер повернув некоректну відповідь. Спробуйте ще раз.')
+        }
     }
-    return response.text().catch(() => '')
+    return response.text()
 }
 
 export async function apiFetch(path, options = {}) {
     const response = await fetch(buildApiUrl(path), options)
     const data = await readResponseBody(response)
+    if (options.signal?.aborted) throw new DOMException('Запит скасовано', 'AbortError')
 
     if (!response.ok) {
         const message = data?.detail || data?.error || data?.message || response.statusText || 'Request failed'
@@ -39,7 +45,15 @@ export async function apiFetch(path, options = {}) {
         error.data = data
         throw error
     }
+    if (typeof data === 'string' && !(response.headers.get('content-type') || '').includes('application/json')) {
+        throw new Error('Сервер повернув некоректну відповідь. Спробуйте ще раз.')
+    }
 
+    if (path.startsWith('/tasks') && options.method && options.method !== 'GET' && globalThis.window?.BroadcastChannel) {
+        const channel = new BroadcastChannel('school-manager-widgets')
+        channel.postMessage({ changed: true })
+        channel.close()
+    }
     return data
 }
 

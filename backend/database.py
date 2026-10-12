@@ -60,6 +60,8 @@ def ensure_schema_migrations():
                 ("telegram_chat_id", "VARCHAR"),
                 ("telegram_message_id", "INTEGER"),
                 ("delivery_checked_at", "VARCHAR"),
+                ("lesson_snapshot", "TEXT"),
+                ("resend_of_run_id", "INTEGER"),
             ):
                 if name not in run_columns:
                     connection.execute(text(f"ALTER TABLE parent_report_runs ADD COLUMN {name} {sql_type}"))
@@ -241,6 +243,10 @@ def ensure_schema_migrations():
             if "postponed_start_at" not in parent_lesson_columns:
                 connection.execute(
                     text("ALTER TABLE parent_report_lessons ADD COLUMN postponed_start_at VARCHAR")
+                )
+            if "is_paused" not in parent_lesson_columns:
+                connection.execute(
+                    text("ALTER TABLE parent_report_lessons ADD COLUMN is_paused INTEGER NOT NULL DEFAULT 0")
                 )
             if "postponed_from_date" not in parent_lesson_columns:
                 connection.execute(

@@ -1,4 +1,5 @@
 import React from 'react'
+import { reportClientError } from '../api/client'
 
 export class ErrorBoundary extends React.Component {
     constructor(props) {
@@ -12,6 +13,7 @@ export class ErrorBoundary extends React.Component {
 
     componentDidCatch(error, errorInfo) {
         console.error('ErrorBoundary caught an error:', error, errorInfo)
+        reportClientError('Frontend', `Помилка відображення ${window.location.pathname}: ${error.name}: ${error.message}\n${errorInfo.componentStack || ''}`.slice(0, 3000))
     }
 
     handleReset = () => {

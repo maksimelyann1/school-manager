@@ -235,6 +235,9 @@ class PendingReportItem(BaseModel):
     lesson_date: Optional[str] = ""
     start_time: Optional[str] = ""
     absents: Optional[str] = ""
+    lesson_run_date: str = ""
+    manual_required: bool = False
+    manual_reason: str = ""
 
 class NextAutoReportItem(BaseModel):
     lesson_id: int

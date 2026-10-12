@@ -9,6 +9,7 @@ import zipfile
 from datetime import date, datetime, time, timedelta
 from time import monotonic
 from typing import Any
+from uuid import UUID
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
@@ -284,13 +285,32 @@ class CourseLessonUpdate(BaseModel):
 
 class SendReportRequest(BaseModel):
     lesson_id: int
-    absents: str | None = ""
+    lesson_date: date | None = None
+    review_run_id: int | None = None
+    absents: str | None = None
     test: bool | None = None
+
+
+class ReportNeedsReview(HTTPException):
+    def __init__(self, detail, lesson, schedule):
+        super().__init__(status_code=409, detail=detail)
+        self.snapshot = _report_snapshot(lesson, schedule)
+        self.absents = lesson.absents or ""
+
+
+class ResendReportRequest(BaseModel):
+    request_id: UUID
+    absents: str = ""
+    use_logika_absents: bool = True
 
 
 class PostponeLessonRequest(BaseModel):
     date: str
     time: str
+
+
+class PauseLessonRequest(BaseModel):
+    paused: bool
 
 
 def _now_iso() -> str:
@@ -1333,6 +1353,8 @@ def _serialize_lesson(lesson: ParentReportLesson, settings: ParentReportSettings
         "row_order": lesson.row_order or lesson.source_row or lesson.id,
         "group_name": lesson.group_name,
         "telegram_group_id": lesson.telegram_group_id,
+        "logika_group_id": lesson.logika_group_id,
+        "logika_schedule_id": lesson.logika_schedule_id,
         "telegram_group_name": telegram_group.name if telegram_group else "",
         "day": lesson.day or "",
         "start_time": lesson.start_time or "",
@@ -1346,6 +1368,7 @@ def _serialize_lesson(lesson: ParentReportLesson, settings: ParentReportSettings
         "duration_minutes": lesson.duration_minutes or default_duration,
         "last_report_date": lesson.last_report_date or "",
         "absents": lesson.absents or "",
+        "is_paused": bool(lesson.is_paused),
         "is_postponed": bool(postponed_start),
         "postponed_start_at": postponed_start.isoformat() if postponed_start else "",
         "postponed_from_date": getattr(lesson, "postponed_from_date", None) or "",
@@ -1501,6 +1524,8 @@ def _is_lesson_pending(
     include_report_delay: bool = False,
     delay_minutes: int | None = None,
 ) -> dict[str, Any] | None:
+    if lesson.is_paused:
+        return None
     context = _lesson_schedule_context(
         lesson,
         settings,
@@ -1587,31 +1612,49 @@ def _render_prompt(template: str, values: dict[str, str]) -> str:
     return prompt
 
 
-async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto):
+async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto, fetch_absents=False,
+                                          prefer_schedule_id=False, check_attendance=False):
     if not (lesson.logika_group_id or lesson.logika_schedule_id or lesson.source_sheet == "Logika Backoffice"):
         return
 
-    from logika_client import LogikaClient
+    from logika_client import LogikaClient, absent_student_names, parse_attendance
     from routers.logika import _extract_lesson_code
 
-    def fail(detail, status=409):
+    review_lesson = lesson
+    review_schedule = schedule
+
+    def fail(detail, status=409, *, review=False):
+        if is_auto and review:
+            raise ReportNeedsReview(detail, review_lesson, review_schedule)
         _raise_report_http(status, detail, action="Звіряння уроку з Logika", lesson=lesson, log=not is_auto)
 
     config = db.query(LogikaSettings).first()
     if not config or not config.login or not config.password:
-        fail("Підключіть Logika, щоб перевірити тему завершеного уроку")
+        fail("Підключіть Logika, щоб перевірити тему завершеного уроку", review=True)
     if not lesson.logika_group_id:
-        fail("Для уроку немає ID групи Logika. Синхронізуйте розклад у налаштуваннях")
+        fail("Для уроку немає ID групи Logika. Синхронізуйте розклад у налаштуваннях", review=True)
     if not lesson.course:
-        fail("Виберіть курс із бази звітів для цієї групи")
+        fail("Виберіть курс із бази звітів для цієї групи", review=True)
 
     client = LogikaClient(login=config.login, password=config.password,
                           access_token=config.access_token, refresh_token=config.refresh_token,
                           xsrf_token=config.xsrf_token)
+
+    def save_tokens():
+        changed = False
+        for name in ("access_token", "refresh_token", "xsrf_token"):
+            if getattr(config, name) != getattr(client, name):
+                setattr(config, name, getattr(client, name))
+                changed = True
+        if changed:
+            db.commit()
+
     try:
         items = await asyncio.to_thread(client.get_group_schedule, lesson.logika_group_id)
     except Exception as error:
+        save_tokens()
         fail(f"Не вдалося перевірити завершений урок у Logika: {error}", 502)
+    save_tokens()
 
     candidates = []
     for item in items:
@@ -1620,9 +1663,9 @@ async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto):
             continue
         group_id = (item.get("group") or {}).get("key")
         teacher_id = (item.get("teacher") or {}).get("key")
-        if group_id is not None and str(group_id) != str(lesson.logika_group_id):
+        if str(group_id) != str(lesson.logika_group_id):
             continue
-        if config.teacher_id and teacher_id is not None and str(teacher_id) != str(config.teacher_id):
+        if config.teacher_id and str(teacher_id) != str(config.teacher_id):
             continue
         status = str(item.get("lessonStatus") or item.get("status") or "").upper()
         if item.get("deleted") or status in {"CANCEL", "CANCELED", "CANCELLED", "DELETED"}:
@@ -1630,40 +1673,77 @@ async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto):
         candidates.append((item, start))
 
     if len(candidates) > 1:
+        exact_id = [pair for pair in candidates if str(pair[0]["id"]) == str(lesson.logika_schedule_id)]
         exact_time = [pair for pair in candidates if pair[1] == schedule["start_dt"]]
-        candidates = exact_time or [pair for pair in candidates if str(pair[0]["id"]) == str(lesson.logika_schedule_id)]
+        candidates = (exact_id or exact_time) if prefer_schedule_id else (exact_time or exact_id)
     if len(candidates) != 1:
-        fail(f"Не вдалося однозначно знайти заняття в Logika за {schedule['lesson_date']:%d.%m.%Y}. Перевірте дату й час уроку")
+        fail(f"Не вдалося однозначно знайти заняття в Logika за {schedule['lesson_date']:%d.%m.%Y}. Перевірте дату й час уроку", review=True)
     target, start = candidates[0]
+    review_schedule = {**schedule, "start_dt": start}
     duration_seconds = _parse_int(target.get("duration")) or schedule["duration_minutes"] * 60
     end = _parse_iso_datetime(target.get("end")) or start + timedelta(seconds=duration_seconds)
     if end > datetime.now(KYIV_TZ):
         fail("За розкладом Logika цей урок ще не завершився")
     code = _extract_lesson_code((target.get("lesson") or {}).get("value") or "")
     if not code:
-        fail("У назві завершеного уроку Logika не знайдено код модуля та уроку")
+        fail("У назві завершеного уроку Logika не знайдено код модуля та уроку", review=True)
     source_item = await _source_course_lesson_lookup_by_code(lesson.course, code)
     if not source_item:
-        fail(f"У курсі '{lesson.course}' немає уроку {code} з Logika. Оновіть базу звітів або перевірте вибраний курс")
+        fail(f"У курсі '{lesson.course}' немає уроку {code} з Logika. Оновіть базу звітів або перевірте вибраний курс", review=True)
+
+    review_lesson = ParentReportLesson(id=lesson.id, **{
+        name: getattr(lesson, name) for name in REPORT_SNAPSHOT_FIELDS
+    })
+    _apply_course_item_to_lesson(review_lesson, source_item)
+    review_lesson.logika_schedule_id = target["id"]
+    review_lesson.absents = lesson.absents or ""
 
     absents = None
-    if is_auto and config.auto_fetch_absents:
+    if is_auto or fetch_absents or check_attendance:
         try:
-            absents = await asyncio.to_thread(client.get_absent_students, target["id"])
+            records = parse_attendance(
+                await asyncio.to_thread(client.get_attendance, target["id"]), target["id"],
+            )
+        except ValueError as error:
+            save_tokens()
+            fail(f"Не вдалося перевірити відвідування в Logika: {error}", review=True)
         except Exception as error:
-            fail(f"Не вдалося отримати відсутніх із Logika: {error}", 502)
+            save_tokens()
+            fail(f"Не вдалося перевірити відвідування в Logika: {error}", 502)
+        save_tokens()
+        expected = _parse_int(target.get("studentsAmount"))
+        if not records or (expected and expected != len(records)):
+            fail("У Logika немає повного журналу учнів цього заняття", review=True)
+        # Count unique students in this dated lesson, never absences across dates.
+        prefix = "Автозвіт" if is_auto else "Звіт"
+        if len(records) <= 2:
+            if not any(record["state"] == "PRESENT" for record in records):
+                reason = "єдиний учень не позначений як присутній" if len(records) == 1 else "обидва учні не позначені як присутні"
+                uncertain = any(record["state"] not in {"PRESENT", "ABSENT", "MISSED", "NO_LESSON"} for record in records)
+                fail(f"{prefix} не відправлено: {reason} у Logika за {schedule['lesson_date']:%d.%m.%Y}", review=uncertain)
+        elif str(target.get("contentType") or "").upper() == "INDIVIDUAL":
+            fail("У Logika суперечливий журнал індивідуального заняття. Перевірте кількість учнів", review=True)
+        if any(record["state"] not in {"PRESENT", "ABSENT", "MISSED"} for record in records):
+            fail("У Logika є невизначений статус відвідування. Перевірте журнал заняття", review=True)
+        review_lesson.absents = ", ".join(absent_student_names(records))
+        if is_auto and len(records) == 2 and sum(record["state"] == "PRESENT" for record in records) == 1:
+            fail("У парному занятті присутній лише один із двох учнів. Вирішіть вручну, чи відправляти звіт", review=True)
+        if fetch_absents or (is_auto and config.auto_fetch_absents):
+            absents = absent_student_names(records)
 
     old_code = lesson.lesson_code
     _apply_course_item_to_lesson(lesson, source_item)
     lesson.logika_schedule_id = target["id"]
-    if absents:
+    if absents is not None:
         lesson.absents = ", ".join(absents)
     config.access_token = client.access_token
     config.refresh_token = client.refresh_token
     config.xsrf_token = client.xsrf_token
     db.commit()
+    if absents is not None:
+        log_event("INFO", "Logika", f"Для звіту '{lesson.group_name}' за {schedule['lesson_date']:%d.%m.%Y} перевірено заняття #{target['id']}: учнів {len(records)}, відсутніх {len(absents)}")
     if old_code != lesson.lesson_code:
-        log_event("INFO", "Logika", f"Перед звітом для '{lesson.group_name}' за {schedule['lesson_date']:%d.%m.%Y} оновлено урок: {old_code or '—'} → {lesson.lesson_code} (№ {lesson.lesson_count})")
+        log_event("INFO", "Logika", f"Перед звітом для '{lesson.group_name}' за {schedule['lesson_date']:%d.%m.%Y} звірено урок: {old_code or '—'} → {lesson.lesson_code} (№ {lesson.lesson_count})")
 
 
 async def _generate_ai_report(
@@ -1933,6 +2013,59 @@ def _create_report_followup_auto_message(
     return auto_msg
 
 
+REPORT_SNAPSHOT_FIELDS = (
+    "source_sheet", "group_name", "telegram_group_id", "course", "lesson_code", "lesson_count",
+    "lesson_title", "lesson_topic_detail", "lesson_report_text", "topic", "duration_minutes",
+    "start_time", "logika_group_id", "logika_schedule_id",
+)
+
+
+def _report_snapshot(lesson, schedule):
+    return json.dumps({
+        **{name: getattr(lesson, name) for name in REPORT_SNAPSHOT_FIELDS},
+        "start_at": schedule["start_dt"].isoformat(),
+        "start_time": schedule["start_dt"].strftime("%H:%M"),
+        "is_postponed": bool(schedule.get("is_postponed")),
+        "postponed_from_date": schedule.get("postponed_from_date") or "",
+    }, ensure_ascii=False)
+
+
+def _resend_context(db, run_id):
+    run = db.get(ParentReportRun, run_id)
+    if not run:
+        _raise_report_http(404, "Звіт не знайдено", action="Повторна відправка")
+    if run.status != "success" or run.is_test:
+        _raise_report_http(409, "Повторно можна відправити лише успішний звіт без позначки «тест»", action="Повторна відправка")
+    lesson = db.get(ParentReportLesson, run.lesson_id) if run.lesson_id else None
+    group = db.get(Group, run.telegram_group_id) if run.telegram_group_id else None
+    if not lesson or not group:
+        _raise_report_http(409, "Урок або Telegram-групу цього звіту вже видалено", action="Повторна відправка")
+    try:
+        snapshot = json.loads(run.lesson_snapshot) if run.lesson_snapshot else {}
+        if not isinstance(snapshot, dict):
+            raise ValueError("snapshot")
+        values = {name: snapshot.get(name, getattr(lesson, name)) for name in REPORT_SNAPSHOT_FIELDS}
+        report_lesson = ParentReportLesson(id=lesson.id, **values)
+        report_lesson.group_name = run.lesson_group_name
+        report_lesson.telegram_group_id = group.id
+        report_lesson.absents = run.absents or ""
+        original_date = date.fromisoformat(run.lesson_date)
+        start = _parse_iso_datetime(snapshot.get("start_at")) if snapshot else None
+        if not start:
+            start = datetime.combine(original_date, time.fromisoformat(report_lesson.start_time or ""), KYIV_TZ)
+        if start.date() != original_date:
+            raise ValueError("date")
+        report_lesson.start_time = start.strftime("%H:%M")
+        report_lesson.postponed_start_at = start.isoformat()
+    except (ValueError, TypeError):
+        _raise_report_http(409, "Не вдалося відновити дату й час початкового уроку", action="Повторна відправка")
+    linked = bool(report_lesson.logika_group_id or report_lesson.logika_schedule_id
+                  or report_lesson.source_sheet == "Logika Backoffice")
+    if not snapshot and not linked:
+        _raise_report_http(409, "Для старого звіту не збережено тему уроку й немає прив’язки до Logika", action="Повторна відправка")
+    return run, lesson, report_lesson, group, linked
+
+
 def _record_report_run(
     db: Session,
     lesson: ParentReportLesson,
@@ -1983,9 +2116,82 @@ def _blocking_report_run(db: Session, lesson: ParentReportLesson, lesson_date: d
         if run.status == "success":
             return run
     for run in runs:
-        if run.status in {"sending", "uncertain"} or is_ambiguous_error(run.error):
+        if run.status in {"sending", "uncertain"} or (run.status == "error" and is_ambiguous_error(run.error)):
             return run
     return None
+
+
+def _manual_report_runs(db, lesson_id=None):
+    query = db.query(ParentReportRun).filter(
+        ParentReportRun.is_test == 0,
+        ParentReportRun.is_auto == 0,
+        ParentReportRun.status.in_(["manual_required", "error", "sending", "uncertain"]),
+        ParentReportRun.lesson_snapshot.isnot(None),
+        ParentReportRun.resend_of_run_id.is_(None),
+    )
+    if lesson_id is not None:
+        query = query.filter(ParentReportRun.lesson_id == lesson_id)
+    return query.order_by(ParentReportRun.id).all()
+
+
+def _manual_report_lesson(lesson, run):
+    try:
+        snapshot = json.loads(run.lesson_snapshot)
+        start = _parse_iso_datetime(snapshot["start_at"])
+        if not start or start.date().isoformat() != run.lesson_date:
+            raise ValueError("date")
+        saved = ParentReportLesson(id=lesson.id, **{
+            name: snapshot.get(name, getattr(lesson, name)) for name in REPORT_SNAPSHOT_FIELDS
+        })
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(409, "Не вдалося відновити дату уроку для ручного звіту")
+    # Keep the dated lesson, but use the user's current course and Telegram selection.
+    saved.course = lesson.course
+    saved.telegram_group_id = lesson.telegram_group_id
+    saved.logika_group_id = saved.logika_group_id or lesson.logika_group_id
+    saved.postponed_start_at = start.isoformat()
+    saved.start_time = start.strftime("%H:%M")
+    saved.absents = run.absents or ""
+    return saved
+
+
+def _save_manual_report(db, lesson, schedule, error):
+    key = f"{lesson.id}:{_format_run_date(schedule['lesson_date'])}"
+    existing = db.query(ParentReportRun).filter(ParentReportRun.delivery_key == key).first()
+    if existing and (existing.status != "error" or is_ambiguous_error(existing.error)):
+        return
+    run = existing or _record_report_run(db, lesson, schedule["lesson_date"], "manual_required", None,
+                                         error.detail, lesson.telegram_group_id, error.absents, False, False)
+    run.status, run.error, run.absents, run.is_auto = "manual_required", error.detail, error.absents, 0
+    run.delivery_key = key
+    run.lesson_snapshot = error.snapshot
+    db.commit()
+    log_event("WARNING", "ParentsReport", f"Звіт для '{lesson.group_name}' за {schedule['lesson_date']:%d.%m.%Y} переведено в ручну відправку: {error.detail}")
+
+
+def _manual_send_context(db, lesson, settings, lesson_date=None, review_run_id=None):
+    current = _lesson_schedule_context(lesson, settings)
+    requested_date = lesson_date or (current["lesson_date"] if current else None)
+    if review_run_id:
+        run = db.get(ParentReportRun, review_run_id)
+        if (not run or run.lesson_id != lesson.id or run.is_test or run.resend_of_run_id
+                or run.status not in {"manual_required", "error", "sending", "uncertain"}
+                or (lesson_date and run.lesson_date != lesson_date.isoformat())):
+            raise HTTPException(409, "Цей звіт уже опрацьовано або він належить іншому уроку")
+        return _manual_report_lesson(lesson, run)
+    for run in _manual_report_runs(db, lesson.id):
+        if requested_date and run.lesson_date == requested_date.isoformat():
+            return _manual_report_lesson(lesson, run)
+    if not lesson_date or (current and lesson_date == current["lesson_date"]):
+        return lesson
+    if not current or lesson_date > _today_kyiv():
+        raise HTTPException(409, "Перевірте дату завершеного уроку")
+    saved = ParentReportLesson(id=lesson.id, **{
+        name: getattr(lesson, name) for name in REPORT_SNAPSHOT_FIELDS
+    })
+    saved.absents = lesson.absents or ""
+    saved.postponed_start_at = datetime.combine(lesson_date, current["start_dt"].timetz()).isoformat()
+    return saved
 
 
 def _notify_auto_report_sent(db: Session, run: ParentReportRun):
@@ -2001,6 +2207,7 @@ def _notify_auto_report_sent(db: Session, run: ParentReportRun):
         show_system_notification(
             "Автозвіт відправлено",
             f"{destination}\nЗвіт за {lesson_date} успішно надіслано в Telegram.",
+            target=f"/parents-report?tab=runs&run_id={run.id}",
         )
     except Exception as error:
         db.rollback()
@@ -2013,18 +2220,32 @@ def _complete_report_delivery(db: Session, lesson: ParentReportLesson, run: Pare
         ParentReportRun.id == run.id, ParentReportRun.status != "success",
     ).update({"status": "success", "error": None, "telegram_message_id": message_id})
     db.refresh(lesson)
-    newly_reported = bool(changed) and not _lesson_date_is_closed(lesson, date.fromisoformat(run.lesson_date))
+    current = _lesson_schedule_context(lesson, _get_or_create_settings(db))
+    newly_reported = (bool(changed) and not run.resend_of_run_id
+                      and not _lesson_date_is_closed(lesson, date.fromisoformat(run.lesson_date)))
+    try:
+        snapshot = json.loads(run.lesson_snapshot or "{}")
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+    except (ValueError, TypeError):
+        snapshot = {}
+    same_schedule = (current and current["lesson_date"].isoformat() == run.lesson_date
+                     and (not lesson.logika_schedule_id
+                          or str(snapshot.get("logika_schedule_id")) == str(lesson.logika_schedule_id)))
     if not run.is_test and newly_reported:
-        _mark_lesson_reported(db, lesson, date.fromisoformat(run.lesson_date), run.absents)
+        if same_schedule:
+            _mark_lesson_reported(db, lesson, date.fromisoformat(run.lesson_date), run.absents)
+        else:
+            lesson.last_report_date = _format_display_date(date.fromisoformat(run.lesson_date))
     # No network calls or follow-up work may precede this commit.
     db.commit()
     if changed:
         _notify_auto_report_sent(db, run)
-    return newly_reported
+    return bool(newly_reported and same_schedule)
 
 
 async def _after_report_delivery(db, lesson, settings, telegram_group, schedule, run):
-    if run.is_test:
+    if run.is_test or run.resend_of_run_id:
         return
     followup = None
     try:
@@ -2051,10 +2272,21 @@ async def _after_report_delivery(db, lesson, settings, telegram_group, schedule,
         _log_report_issue("WARNING", f"Звіт збережено, але наступну тему не оновлено: {error}")
 
 
+def _previous_report_message_ids(db, run):
+    return {message_id for (message_id,) in db.query(ParentReportRun.telegram_message_id).filter(
+        ParentReportRun.id != run.id,
+        ParentReportRun.telegram_message_id.isnot(None),
+        (ParentReportRun.telegram_chat_id == run.telegram_chat_id)
+        | (ParentReportRun.telegram_group_id == run.telegram_group_id),
+    ).all()}
+
+
 async def reconcile_report_deliveries(db: Session, *, force: bool = False):
     if not pyrogram_manager.is_connected:
         return
-    async with _report_send_lock:
+    from routers.logika import _sync_lock
+
+    async with _report_send_lock, _sync_lock:
         runs = db.query(ParentReportRun).filter(
             ParentReportRun.status.in_(["sending", "uncertain", "error"]),
         ).order_by(ParentReportRun.id.desc()).limit(100).all()
@@ -2076,6 +2308,7 @@ async def reconcile_report_deliveries(db: Session, *, force: bool = False):
                 message_id = await find_delivered_report(
                     pyrogram_manager.client, run.telegram_chat_id or group.telegram_id,
                     run.message, run.created_at, legacy=not bool(run.telegram_random_id),
+                    exclude_message_ids=_previous_report_message_ids(db, run),
                 )
                 if message_id is None:
                     continue
@@ -2091,12 +2324,27 @@ async def reconcile_report_deliveries(db: Session, *, force: bool = False):
                 _log_report_issue("WARNING", f"Не вдалося перевірити доставку звіту #{run.id}: {error}")
 
 
-async def _send_lesson_report(db, lesson, settings, message, absents, is_auto, is_test):
-    async with _report_send_lock:
+async def _send_lesson_report(db, lesson, settings, message, absents, is_auto, is_test,
+                              *, lesson_date=None, review_run_id=None, use_logika_absents=False):
+    from routers.logika import _sync_lock
+
+    async with _report_send_lock, _sync_lock:
         db.refresh(lesson)
-        return await _send_lesson_report_locked(
-            db, lesson, settings, message, absents, is_auto, is_test,
-        )
+        report_lesson = _manual_send_context(db, lesson, settings, lesson_date, review_run_id) if not is_auto else lesson
+        schedule = _lesson_schedule_context(report_lesson, settings)
+        if is_auto and schedule and any(run.lesson_date == _format_run_date(schedule["lesson_date"])
+                           for run in _manual_report_runs(db, lesson.id)):
+            raise HTTPException(409, "Звіт очікує ручного рішення")
+        try:
+            return await _send_lesson_report_locked(
+                db, lesson, settings, message, absents, is_auto, is_test,
+                report_lesson=report_lesson, use_logika_absents=use_logika_absents,
+            )
+        except ReportNeedsReview as error:
+            db.rollback()
+            if is_auto and not is_test:
+                _save_manual_report(db, lesson, schedule, error)
+            raise
 
 
 async def _send_lesson_report_locked(
@@ -2107,8 +2355,16 @@ async def _send_lesson_report_locked(
     absents: str | None,
     is_auto: bool,
     is_test: bool,
+    *,
+    resend_of: ParentReportRun | None = None,
+    request_id: UUID | None = None,
+    report_lesson: ParentReportLesson | None = None,
+    use_logika_absents: bool = False,
 ) -> dict[str, Any]:
-    schedule = _lesson_schedule_context(lesson, settings)
+    report_lesson = report_lesson or lesson
+    if is_auto and lesson.is_paused:
+        raise HTTPException(status_code=409, detail="Група на паузі: автозвіт не відправлено")
+    schedule = _lesson_schedule_context(report_lesson, settings)
     if not schedule:
         _raise_report_http(
             400,
@@ -2118,7 +2374,28 @@ async def _send_lesson_report_locked(
             log=not is_auto,
         )
 
-    if not is_test and _lesson_date_is_closed(lesson, schedule["lesson_date"]):
+    delivery_key = None if is_test else f"{lesson.id}:{_format_run_date(schedule['lesson_date'])}"
+    if is_auto:
+        due = _lesson_schedule_context(lesson, settings, include_report_delay=True)
+        if not due or datetime.now(KYIV_TZ) < due["available_at"]:
+            raise HTTPException(status_code=409, detail="Автозвіт чекатиме завершення уроку та заданої затримки")
+    if resend_of:
+        delivery_key = f"resend:{resend_of.id}:{request_id}"
+        completed = db.query(ParentReportRun).filter(ParentReportRun.delivery_key == delivery_key).first()
+        if completed and completed.status == "success":
+            return {"ok": True, "message": completed.message, "already_sent": True}
+        unresolved = db.query(ParentReportRun).filter(
+            ParentReportRun.lesson_id == lesson.id,
+            ParentReportRun.lesson_date == _format_run_date(schedule["lesson_date"]),
+            ParentReportRun.is_test == 0,
+        ).all()
+        if any(run.status in {"sending", "uncertain"}
+               or (run.status == "error" and is_ambiguous_error(run.error)) for run in unresolved):
+            raise HTTPException(status_code=409, detail=UNCERTAIN_MESSAGE)
+
+    manual_review = any(run.lesson_date == _format_run_date(schedule["lesson_date"])
+                        for run in _manual_report_runs(db, lesson.id))
+    if not is_test and not resend_of and not manual_review and _lesson_date_is_closed(lesson, schedule["lesson_date"]):
         _raise_report_http(
             409,
             "Звіт для цього уроку вже відправлено",
@@ -2127,14 +2404,14 @@ async def _send_lesson_report_locked(
             log=not is_auto,
         )
 
-    if not is_test:
+    if not is_test and not resend_of:
         existing = _blocking_report_run(db, lesson, schedule["lesson_date"])
         if existing:
             raise HTTPException(status_code=409, detail=(
                 "Звіт для цього уроку вже відправлено" if existing.status == "success" else UNCERTAIN_MESSAGE
             ))
 
-    telegram_group = _telegram_group_for_lesson(db, lesson)
+    telegram_group = db.get(Group, resend_of.telegram_group_id) if resend_of else _telegram_group_for_lesson(db, lesson)
     if not telegram_group:
         _raise_report_http(
             400,
@@ -2154,15 +2431,29 @@ async def _send_lesson_report_locked(
         )
 
     report_text = (message or "").strip()
+    if is_auto or not report_text or not is_test:
+        await _sync_logika_lesson_before_report(
+            db, report_lesson, schedule, is_auto=is_auto,
+            fetch_absents=use_logika_absents, prefer_schedule_id=bool(resend_of or manual_review),
+            check_attendance=not is_test,
+        )
+        if is_auto or use_logika_absents:
+            absents = report_lesson.absents or ""
     if not report_text:
-        await _sync_logika_lesson_before_report(db, lesson, schedule, is_auto=is_auto)
-        if is_auto:
-            absents = lesson.absents or ""
-        report_text = await _generate_ai_report(settings, lesson, absents, test=is_test, is_auto=is_auto)
+        report_text = await _generate_ai_report(settings, report_lesson, absents, test=is_test, is_auto=is_auto)
     elif is_test and not report_text.startswith("ТЕСТ"):
         report_text = f"ТЕСТ\n{report_text}"
 
-    delivery_key = None if is_test else f"{lesson.id}:{_format_run_date(schedule['lesson_date'])}"
+    if is_auto:
+        # User settings may change while Logika or AI is responding.
+        db.refresh(lesson)
+        current = _lesson_schedule_context(lesson, settings, include_report_delay=True)
+        if lesson.is_paused:
+            raise HTTPException(status_code=409, detail="Група на паузі: автозвіт не відправлено")
+        if (not current or current["start_dt"] != schedule["start_dt"]
+                or datetime.now(KYIV_TZ) < current["available_at"]):
+            raise HTTPException(status_code=409, detail="Розклад змінено: автозвіт чекатиме завершення уроку")
+
     # Commit the send intent before Telegram. A unique key also guards other processes.
     try:
         report_run = db.query(ParentReportRun).filter(
@@ -2170,7 +2461,7 @@ async def _send_lesson_report_locked(
         ).first() if delivery_key else None
         if report_run:
             claimed = db.query(ParentReportRun).filter(
-                ParentReportRun.id == report_run.id, ParentReportRun.status == "error",
+                ParentReportRun.id == report_run.id, ParentReportRun.status.in_(["error", "manual_required"]),
             ).update({"status": "sending"}, synchronize_session=False)
             if not claimed:
                 db.rollback()
@@ -2179,14 +2470,17 @@ async def _send_lesson_report_locked(
             report_run.message = report_text
             report_run.absents = absents or ""
             report_run.telegram_group_id = telegram_group.id
+            report_run.is_auto = int(is_auto)
             report_run.error = None
             report_run.created_at = _now_iso()
         else:
             report_run = _record_report_run(
-                db, lesson, schedule["lesson_date"], "sending", report_text, None,
+                db, report_lesson, schedule["lesson_date"], "sending", report_text, None,
                 telegram_group.id, absents, is_auto, is_test,
             )
             report_run.delivery_key = delivery_key
+        report_run.lesson_snapshot = _report_snapshot(report_lesson, schedule)
+        report_run.resend_of_run_id = resend_of.id if resend_of else None
         report_run.telegram_random_id = str(secrets.randbits(63) or 1)
         report_run.telegram_chat_id = telegram_group.telegram_id
         db.commit()
@@ -2213,6 +2507,7 @@ async def _send_lesson_report_locked(
                 message_id = await find_delivered_report(
                     pyrogram_manager.client, report_run.telegram_chat_id,
                     report_run.message, report_run.created_at,
+                    exclude_message_ids=_previous_report_message_ids(db, report_run),
                 )
             except Exception as error:
                 _log_report_issue("WARNING", f"Не вдалося перевірити доставку звіту #{report_run.id}: {error}")
@@ -2226,7 +2521,7 @@ async def _send_lesson_report_locked(
     log_event(
         "INFO",
         "ParentsReport",
-        f"Звіт для '{lesson.group_name}' відправлено у '{telegram_group.name}'"
+        f"{'Повторний звіт' if resend_of else 'Звіт'} для '{report_lesson.group_name}' за {schedule['lesson_date']:%d.%m.%Y} відправлено у '{telegram_group.name}'"
         + (" (тест)" if is_test else ""),
     )
 
@@ -2251,6 +2546,38 @@ def _collect_pending(
         ParentReportLesson.start_time,
     ).all()
     pending = []
+    reviewed_dates = set()
+    lessons_by_id = {lesson.id: lesson for lesson in lessons}
+    for run in _manual_report_runs(db):
+        lesson = lessons_by_id.get(run.lesson_id)
+        if not lesson or lesson.is_paused:
+            continue
+        saved = _manual_report_lesson(lesson, run)
+        schedule = _lesson_schedule_context(saved, settings)
+        delivery = _blocking_report_run(db, lesson, schedule["lesson_date"])
+        if delivery and delivery.status == "success":
+            continue
+        telegram_group = _telegram_group_for_lesson(db, lesson)
+        item = {
+            **_serialize_lesson(saved, settings),
+            "lesson_date": _format_display_date(schedule["lesson_date"]),
+            "lesson_run_date": run.lesson_date,
+            "ended_at": schedule["end_dt"].isoformat(),
+            "available_at": schedule["available_at"].isoformat(),
+            "end_time": schedule["end_dt"].strftime("%H:%M"),
+            "delivery_status": delivery.status if delivery else None,
+            "delivery_warning": UNCERTAIN_MESSAGE if delivery else "",
+            "manual_required": True,
+            "manual_reason": run.error or "Звіт очікує ручної відправки",
+            "review_run_id": run.id,
+            "is_postponed": bool(json.loads(run.lesson_snapshot).get("is_postponed")),
+            "postponed_from_date": json.loads(run.lesson_snapshot).get("postponed_from_date") or "",
+            "telegram_group_id": telegram_group.id if telegram_group else None,
+            "telegram_group_name": telegram_group.name if telegram_group else "",
+            "mapping_ready": bool(telegram_group),
+        }
+        reviewed_dates.add((lesson.id, run.lesson_date))
+        pending.append(item)
     for lesson in lessons:
         item = _is_lesson_pending(
             db,
@@ -2260,12 +2587,13 @@ def _collect_pending(
             include_report_delay=include_report_delay,
             delay_minutes=delay_minutes,
         )
-        if not item:
+        if not item or (lesson.id, item["lesson_run_date"]) in reviewed_dates:
             continue
         telegram_group = _telegram_group_for_lesson(db, lesson)
         item["telegram_group_id"] = telegram_group.id if telegram_group else None
         item["telegram_group_name"] = telegram_group.name if telegram_group else ""
         item["mapping_ready"] = bool(telegram_group)
+        item["manual_required"] = False
         pending.append(item)
     return pending
 
@@ -2288,9 +2616,7 @@ async def process_auto_reports():
 
         pending = _collect_pending(db, settings, include_report_delay=True)
         for item in pending:
-            if item.get("delivery_status"):
-                continue
-            if item.get("is_postponed"):
+            if item.get("delivery_status") or item.get("manual_required"):
                 continue
             if not item.get("mapping_ready"):
                 continue
@@ -2310,7 +2636,8 @@ async def process_auto_reports():
                 )
             except HTTPException as error:
                 db.rollback()
-                log_event("WARNING", "ParentsReport", f"Автозвіт для '{lesson.group_name}' не відправлено: {error.detail}")
+                if not isinstance(error, ReportNeedsReview):
+                    log_event("WARNING", "ParentsReport", f"Автозвіт для '{lesson.group_name}' не відправлено: {error.detail}")
             except Exception as error:
                 db.rollback()
                 log_event("ERROR", "ParentsReport", f"Автозвіт для '{lesson.group_name}' не відправлено: {error}")
@@ -2351,10 +2678,10 @@ async def process_report_system_notifications():
             lesson = db.query(ParentReportLesson).filter(ParentReportLesson.id == item["id"]).first()
             if not lesson:
                 continue
-            context = _lesson_schedule_context(lesson, settings, delay_minutes=notification_delay)
-            if not context or _has_report_notification(db, lesson, context["lesson_date"]):
+            lesson_date = date.fromisoformat(item["lesson_run_date"])
+            if _has_report_notification(db, lesson, lesson_date):
                 continue
-            due_lessons.append((lesson, context["lesson_date"], item.get("end_time") or ""))
+            due_lessons.append((lesson, lesson_date, item.get("end_time") or ""))
 
         if not due_lessons:
             return
@@ -2370,7 +2697,10 @@ async def process_report_system_notifications():
             title = "Є уроки, які потребують звіт"
             message = f"{len(due_lessons)} уроків готові до звіту: {group_names}."
 
-        if show_system_notification(title, message):
+        target = "/parents-report?tab=pending"
+        if len(due_lessons) == 1:
+            target += f"&lesson_id={due_lessons[0][0].id}"
+        if show_system_notification(title, message, target=target):
             for lesson, lesson_date, _end_time in due_lessons:
                 _record_report_notification(db, lesson, lesson_date)
             db.commit()
@@ -2852,7 +3182,8 @@ def postpone_schedule_row(lesson_id: int, payload: PostponeLessonRequest, db: Se
 
     original_context = _lesson_schedule_context(lesson, settings, use_postponed=False)
     lesson.postponed_start_at = start_dt.isoformat()
-    lesson.postponed_from_date = _format_run_date(original_context["lesson_date"]) if original_context else ""
+    if not lesson.postponed_from_date:
+        lesson.postponed_from_date = _format_run_date(original_context["lesson_date"]) if original_context else ""
     lesson.postponed_created_at = _now_iso()
 
     db.query(ParentReportNotification).filter(
@@ -2884,6 +3215,23 @@ def cancel_schedule_postpone(lesson_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(lesson)
     log_event("INFO", "ParentsReport", f"Перенесення уроку для '{lesson.group_name}' скасовано")
+    return _serialize_lesson(lesson, settings)
+
+
+@router.patch("/schedule/{lesson_id}/pause")
+def pause_schedule_row(lesson_id: int, payload: PauseLessonRequest, db: Session = Depends(get_db)):
+    settings = _get_or_create_settings(db)
+    lesson = db.get(ParentReportLesson, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Урок не знайдено")
+    lesson.is_paused = int(payload.paused)
+    db.query(ParentReportNotification).filter(
+        ParentReportNotification.lesson_id == lesson.id
+    ).delete(synchronize_session=False)
+    db.commit()
+    db.refresh(lesson)
+    action = "поставлено на паузу" if payload.paused else "відновлено"
+    log_event("INFO", "ParentsReport", f"Групу '{lesson.group_name}' {action}")
     return _serialize_lesson(lesson, settings)
 
 
@@ -3093,7 +3441,7 @@ async def send_report(payload: SendReportRequest, db: Session = Depends(get_db))
     if not lesson:
         _raise_report_http(404, "Урок не знайдено", action="Відправка звіту")
 
-    absents = (payload.absents or "").strip()
+    absents = payload.absents.strip() if payload.absents is not None else None
     test = bool(settings.test_mode) if payload.test is None else bool(payload.test)
     return await _send_lesson_report(
         db,
@@ -3103,12 +3451,89 @@ async def send_report(payload: SendReportRequest, db: Session = Depends(get_db))
         absents=absents,
         is_auto=False,
         is_test=test,
+        lesson_date=payload.lesson_date,
+        review_run_id=payload.review_run_id,
+        use_logika_absents=payload.absents is None,
     )
 
 
+@router.post("/preview")
+async def preview_manual_report(payload: SendReportRequest, db: Session = Depends(get_db)):
+    from routers.logika import _sync_lock
+
+    async with _report_send_lock, _sync_lock:
+        lesson = db.get(ParentReportLesson, payload.lesson_id)
+        if not lesson:
+            raise HTTPException(404, "Урок не знайдено")
+        settings = _get_or_create_settings(db)
+        saved = _manual_send_context(db, lesson, settings, payload.lesson_date, payload.review_run_id)
+        schedule = _lesson_schedule_context(saved, settings)
+        if not schedule:
+            raise HTTPException(409, "Не вдалося визначити дату й час уроку")
+        await _sync_logika_lesson_before_report(db, saved, schedule, is_auto=False,
+                                               fetch_absents=payload.absents is None, check_attendance=True,
+                                               prefer_schedule_id=bool(payload.review_run_id))
+        if payload.absents is not None:
+            saved.absents = payload.absents.strip()
+        if payload.review_run_id:
+            run = db.get(ParentReportRun, payload.review_run_id)
+            snapshot = json.loads(run.lesson_snapshot)
+            run.lesson_snapshot = _report_snapshot(saved, {**schedule,
+                "is_postponed": snapshot.get("is_postponed"),
+                "postponed_from_date": snapshot.get("postponed_from_date")})
+            run.absents = saved.absents or ""
+            db.commit()
+        result = _serialize_lesson(saved, settings)
+        return {key: result[key] for key in (
+            "lesson_code", "lesson_count", "lesson_title", "lesson_topic_detail", "topic", "absents",
+        )}
+
+
+@router.get("/runs/{run_id}/resend-preview")
+async def preview_report_resend(run_id: int, db: Session = Depends(get_db)):
+    from routers.logika import _sync_lock
+
+    async with _report_send_lock, _sync_lock:
+        run, lesson, report_lesson, group, linked = _resend_context(db, run_id)
+        settings = _get_or_create_settings(db)
+        schedule = _lesson_schedule_context(report_lesson, settings)
+        await _sync_logika_lesson_before_report(
+            db, report_lesson, schedule, is_auto=False, fetch_absents=linked, prefer_schedule_id=True,
+        )
+        return {
+            "lesson_group_name": report_lesson.group_name,
+            "lesson_date": run.lesson_date,
+            "course": report_lesson.course or "",
+            "lesson_code": report_lesson.lesson_code or "",
+            "lesson_title": report_lesson.lesson_title or "",
+            "telegram_group_name": group.name,
+            "absents": report_lesson.absents or "",
+            "use_logika_absents": linked,
+            "is_test": bool(settings.test_mode),
+        }
+
+
+@router.post("/runs/{run_id}/resend")
+async def resend_report(run_id: int, payload: ResendReportRequest, db: Session = Depends(get_db)):
+    from routers.logika import _sync_lock
+
+    async with _report_send_lock, _sync_lock:
+        run, lesson, report_lesson, group, linked = _resend_context(db, run_id)
+        settings = _get_or_create_settings(db)
+        return await _send_lesson_report_locked(
+            db, lesson, settings, None, payload.absents.strip(), False, bool(settings.test_mode),
+            resend_of=run, request_id=payload.request_id, report_lesson=report_lesson,
+            use_logika_absents=linked and payload.use_logika_absents,
+        )
+
+
 @router.get("/runs")
-def get_report_runs(limit: int = 100, db: Session = Depends(get_db)):
+def get_report_runs(limit: int = 100, db: Session = Depends(get_db), run_id: int | None = None):
     runs = db.query(ParentReportRun).order_by(ParentReportRun.id.desc()).limit(max(1, min(500, limit))).all()
+    if run_id and not any(run.id == run_id for run in runs):
+        targeted = db.get(ParentReportRun, run_id)
+        if targeted:
+            runs.insert(0, targeted)
     telegram_groups = {
         group.id: group.name
         for group in db.query(Group).filter(Group.id.in_([run.telegram_group_id for run in runs if run.telegram_group_id])).all()
@@ -3116,6 +3541,7 @@ def get_report_runs(limit: int = 100, db: Session = Depends(get_db)):
     return [
         {
             "id": run.id,
+            "lesson_id": run.lesson_id,
             "lesson_group_name": run.lesson_group_name,
             "lesson_date": run.lesson_date,
             "telegram_group_id": run.telegram_group_id,
@@ -3127,6 +3553,7 @@ def get_report_runs(limit: int = 100, db: Session = Depends(get_db)):
             "is_auto": bool(run.is_auto),
             "is_test": bool(run.is_test),
             "created_at": run.created_at,
+            "resend_of_run_id": run.resend_of_run_id,
         }
         for run in runs
     ]

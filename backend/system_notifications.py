@@ -1,4 +1,5 @@
 import json
+from html import escape
 import os
 import subprocess
 import sys
@@ -6,6 +7,7 @@ import sys
 from database import SessionLocal
 from logger import log_event
 from models import BotSettings
+from notification_navigation import notification_uri
 
 
 APP_NOTIFICATION_NAME = "School Manager"
@@ -55,7 +57,7 @@ def _notification_icon_path() -> str:
     return ""
 
 
-def _show_windows_notification(title: str, message: str) -> bool:
+def _show_windows_notification(title: str, message: str, target: str = "/") -> bool:
     try:
         from winotify import Notification
     except Exception as error:
@@ -69,6 +71,7 @@ def _show_windows_notification(title: str, message: str) -> bool:
             msg=message,
             icon=_notification_icon_path(),
             duration="short",
+            launch=escape(notification_uri(target), quote=True),
         )
         toast.show()
         return True
@@ -96,12 +99,12 @@ def _show_macos_notification(title: str, message: str) -> bool:
         return False
 
 
-def show_system_notification(title: str, message: str) -> bool:
+def show_system_notification(title: str, message: str, *, target: str = "/") -> bool:
     if not system_notifications_supported() or not _settings_enabled():
         return False
 
     if sys.platform == "win32":
-        return _show_windows_notification(title, message)
+        return _show_windows_notification(title, message, target=target)
     if sys.platform == "darwin":
         return _show_macos_notification(title, message)
     return False

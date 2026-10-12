@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+import httpx
 
 from sqlalchemy import create_engine, inspect, text
 
@@ -25,7 +26,7 @@ class PlannerRecoveryTests(PlannerFixture):
         self.assertEqual(connection.sync_attempts, 0)
         self.assertEqual(self.db.query(PlannerConnection).count(), 1)
 
-    def test_backoff_stops_after_six_failures_and_manual_retry_recovers(self):
+    def test_backoff_after_six_failures_waits_then_recovers_automatically(self):
         self.connect()
         api = SimpleNamespace(close=AsyncMock())
         with patch.object(google, 'SessionLocal', self.sessions), patch.object(google, 'access_token', AsyncMock(return_value='fake')), patch.object(google, 'GoogleAPI', return_value=api), patch.object(google, 'pull_calendar', AsyncMock(side_effect=google.GoogleError(429))) as pull, patch('logger.log_event'):
@@ -39,10 +40,22 @@ class PlannerRecoveryTests(PlannerFixture):
             asyncio.run(google.sync_google())
             self.assertEqual(pull.await_count, 6)
             pull.side_effect = None
-            self.assertEqual(asyncio.run(google.sync_google(force=True))['state'], 'connected')
+            connection.next_sync_at = '2000-01-01T00:00:00+00:00'
+            self.db.commit()
+            self.assertEqual(asyncio.run(google.sync_google())['state'], 'connected')
             self.db.expire_all()
             self.assertEqual(connection.sync_attempts, 0)
         self.assertEqual(api.close.await_count, 7)
+
+    def test_manual_retry_ignores_backoff(self):
+        self.connect()
+        connection = self.db.get(PlannerConnection, 'account-1')
+        connection.state, connection.next_sync_at = 'error', '2099-01-01T00:00:00+00:00'
+        self.db.commit()
+        api = SimpleNamespace(close=AsyncMock())
+        with patch.object(google, 'SessionLocal', self.sessions), patch.object(google, 'access_token', AsyncMock(return_value='fake')), \
+             patch.object(google, 'GoogleAPI', return_value=api), patch.object(google, 'pull_calendar', AsyncMock()):
+            self.assertEqual(asyncio.run(google.sync_google(force=True))['state'], 'connected')
 
     def test_expired_google_authorization_pauses_requests(self):
         self.connect()
@@ -50,8 +63,27 @@ class PlannerRecoveryTests(PlannerFixture):
             asyncio.run(google.sync_google())
             self.db.expire_all()
             self.assertEqual(self.db.get(PlannerConnection, 'account-1').state, 'reauth')
-            asyncio.run(google.sync_google())
+            self.assertEqual(asyncio.run(google.sync_google(force=True))['state'], 'reauth')
             token.assert_awaited_once()
+
+    def test_refresh_server_error_is_logged_with_status_without_token_contents(self):
+        self.connect()
+        error = httpx.HTTPStatusError('PRIVATE RESPONSE', request=httpx.Request('POST', 'https://oauth2.googleapis.com/token'),
+                                     response=httpx.Response(503))
+        with patch.object(google, 'SessionLocal', self.sessions), \
+             patch.object(google, 'access_token', AsyncMock(side_effect=error)), patch('logger.log_event') as log:
+            self.assertEqual(asyncio.run(google.sync_google())['state'], 'error')
+        self.assertIn('HTTP 503', str(log.call_args))
+        self.assertNotIn('PRIVATE', str(log.call_args))
+
+    def test_missing_permission_is_not_presented_as_a_rate_limit(self):
+        self.connect()
+        api = SimpleNamespace(close=AsyncMock())
+        with patch.object(google, 'SessionLocal', self.sessions), patch.object(google, 'access_token', AsyncMock(return_value='fake')), \
+             patch.object(google, 'GoogleAPI', return_value=api), \
+             patch.object(google, 'pull_calendar', AsyncMock(side_effect=google.GoogleError(403, 'Forbidden'))), patch('logger.log_event'):
+            result = asyncio.run(google.sync_google())
+        self.assertIn('Оновіть дозволи', result['error'])
 
     def test_restored_task_cannot_move_to_new_google_account(self):
         calendar = self.connect()

@@ -5,5 +5,5 @@ def windows_notifications_supported() -> bool:
     return system_notifications_supported()
 
 
-def show_windows_notification(title: str, message: str) -> bool:
-    return show_system_notification(title, message)
+def show_windows_notification(title: str, message: str, *, target: str = "/") -> bool:
+    return show_system_notification(title, message, target=target)

@@ -53,6 +53,8 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 from startup_state import startup_state
+from notification_navigation import DEV_PROTOCOL, PROTOCOL, normalize_target, target_from_uri
+from desktop_activation import DesktopActivation, register_notification_protocol
 
 
 def _user_data_dir() -> str:
@@ -106,6 +108,12 @@ _main_window_maximized = False
 _allow_window_close = False
 _backend_server = None
 _backend_loop: asyncio.AbstractEventLoop | None = None
+_activation_server = None
+_activation_requested = threading.Event()
+_activation_lock = threading.RLock()
+_pending_notification_target = None
+_widget_manager = None
+_widget_manager_lock = threading.RLock()
 
 
 def log_launcher(message: str):
@@ -595,6 +603,42 @@ def _bring_window_to_foreground_async(window: webview.Window):
         threading.Thread(target=_bring_window_to_foreground, args=(window,), daemon=True).start()
 
 
+def _open_notification_target(target: str | None):
+    global _pending_notification_target
+    with _activation_lock:
+        if target is not None:
+            _pending_notification_target = normalize_target(target)
+        _activation_requested.set()
+    _apply_notification_navigation()
+
+
+def _apply_notification_navigation():
+    global _pending_notification_target
+    if not _activation_requested.is_set():
+        return
+    window = _window
+    try:
+        if not window or not (window.get_current_url() or "").startswith("http://"):
+            if _splash_window:
+                _splash_window.show()
+            return
+        window.show()
+        hwnd = _get_window_hwnd(window)
+        if not hwnd or ctypes.windll.user32.IsIconic(hwnd):
+            window.restore()
+        _bring_window_to_foreground_async(window)
+        with _activation_lock:
+            target = _pending_notification_target
+            if target is not None:
+                window.evaluate_js(
+                    "window.__schoolManagerPendingNavigation = " + json.dumps(target) + ";"
+                    "window.dispatchEvent(new Event('school-manager-navigate'));"
+                )
+                _pending_notification_target = None
+    except Exception as error:
+        log_launcher(f"Не вдалося відкрити розділ зі сповіщення: {error}")
+
+
 def _request_backend_shutdown():
     _shutdown_requested.set()
     server = _backend_server
@@ -631,9 +675,8 @@ def _quit_application(icon: pystray.Icon | None = None):
     _allow_window_close = True
     _request_backend_shutdown()
 
-    widget = DesktopApi._task_widget
-    if widget:
-        _destroy_window_safely(widget)
+    if _widget_manager:
+        _widget_manager.shutdown()
 
     tray_icon = icon or _tray
     if tray_icon:
@@ -654,36 +697,66 @@ class SplashApi:
         _quit_application()
 
 
-class PlannerWidgetApi:
-    def open_planner(self):
-        if _window is None:
-            return False
-        _window.show()
+def _open_widget_target(date=None, item_id=None, lesson_id=None):
+    from datetime import date as calendar_date
+    from urllib.parse import urlencode
+    if not _window:
+        return False
+    params = {}
+    if date:
+        params['date'] = calendar_date.fromisoformat(date).isoformat()
+    if item_id:
+        uuid.UUID(item_id)
+        params['item_id'] = item_id
+    if lesson_id is not None:
+        if type(lesson_id) is not int or lesson_id <= 0:
+            raise ValueError('Некоректний урок')
+        params = {'tab': 'schedule', 'lesson_id': lesson_id}
+    target = ('/parents-report' if lesson_id is not None else '/tasks') + ('?' + urlencode(params) if params else '')
+    _window.show()
+    hwnd = _get_window_hwnd(_window)
+    if not hwnd or ctypes.windll.user32.IsIconic(hwnd):
         _window.restore()
-        _window.evaluate_js("document.querySelector('.sidebar-nav a[href=\"/tasks\"]')?.click()")
-        _bring_window_to_foreground_async(_window)
-        return True
+    _window.evaluate_js("window.__schoolManagerPendingNavigation=" + json.dumps(target) + ";window.dispatchEvent(new Event('school-manager-navigate'))")
+    _bring_window_to_foreground_async(_window)
+    return True
+
+
+def _get_widget_manager():
+    global _widget_manager
+    with _widget_manager_lock:
+        if _widget_manager is None:
+            from desktop_widgets import WidgetManager
+            _widget_manager = WidgetManager(os.path.join(APP_DATA_DIR, 'desktop', 'widgets.json'), _open_widget_target, _log_widget_error, _app_url or 'http://127.0.0.1:8001')
+        return _widget_manager
+
+
+def _log_widget_error(message):
+    log_launcher(message)
+    try:
+        from logger import log_event
+        log_event('ERROR', 'Widgets', message)
+    except Exception:
+        pass
+
+
+def _widget_action(method, *args):
+    from desktop_widgets import widget_action
+    return widget_action(_get_widget_manager(), method, *args)
 
 
 class DesktopApi:
-    _task_widget = None
-    _task_widget_lock = threading.Lock()
+    def get_widgets(self):
+        return _widget_action('snapshot')
 
-    def open_task_widget(self):
-        with self._task_widget_lock:
-            if self._task_widget is not None:
-                self._task_widget.show()
-                self._task_widget.restore()
-                return True
-            def closed():
-                DesktopApi._task_widget = None
-            widget = webview.create_window('Мої задачі · School Manager',
-                'http://127.0.0.1:8001/tasks/widget', width=380, height=560,
-                min_size=(340, 380), background_color='#0f172a', on_top=False,
-                js_api=PlannerWidgetApi())
-            DesktopApi._task_widget = widget
-            widget.events.closed += closed
-            return True
+    def create_widget(self, kind):
+        return _widget_action('create', kind)
+
+    def update_widget(self, widget_id, changes):
+        return _widget_action('update', widget_id, changes)
+
+    def remove_widget(self, widget_id):
+        return _widget_action('remove', widget_id)
 
     def get_window_state(self):
         if not _window:
@@ -1171,6 +1244,8 @@ def _on_interface_loaded():
         if not _window or not (_window.get_current_url() or "").startswith("http://"):
             return  # The initial loading HTML is not the application yet.
         log_launcher("Interface loaded")
+        _apply_notification_navigation()
+        _get_widget_manager().start()
         if _splash_window:
             _destroy_window_safely(_splash_window)
             _splash_window = None
@@ -1206,7 +1281,7 @@ def _startup_flow(start_in_tray: bool):
         if _app_url:
             log_launcher(f"Window URL: {_app_url}")
             _set_loading_status("Завантажуємо інтерфейс. Підключення сервісів триває у фоні…")
-            _create_main_window(_app_url, start_in_tray)
+            _create_main_window(_app_url, start_in_tray and not _activation_requested.is_set())
             return
 
         _shutdown_requested.wait(0.15)
@@ -1262,8 +1337,35 @@ def _create_initial_window(start_in_tray: bool):
 
 
 def main():
+    global _activation_server
     log_launcher("Launcher starting")
     start_in_tray = should_start_in_tray()
+    target = None
+    if "--notification-url" in sys.argv:
+        try:
+            index = sys.argv.index("--notification-url")
+            if index != 1 or len(sys.argv) != 3:
+                raise ValueError("Зайві параметри посилання")
+            target = target_from_uri(sys.argv[index + 1])
+            start_in_tray = False
+        except (ValueError, IndexError) as error:
+            log_launcher(f"Некоректне посилання сповіщення: {error}")
+            return
+    if sys.platform == "win32":
+        _activation_server = DesktopActivation(os.path.join(APP_DATA_DIR, "desktop"), _open_notification_target, log_launcher)
+        try:
+            if not _activation_server.start(target, activate=not start_in_tray):
+                return
+            protocol = PROTOCOL if getattr(sys, "frozen", False) else DEV_PROTOCOL
+            try:
+                register_notification_protocol(protocol, __file__)
+            except OSError as error:
+                log_launcher(f"Не вдалося налаштувати відкриття сповіщень: {error}")
+        except Exception as error:
+            log_launcher(f"Не вдалося активувати програму: {error}")
+            return
+    if target is not None:
+        _open_notification_target(target)
     if start_in_tray:
         log_launcher("Start-in-tray mode enabled")
 
@@ -1276,10 +1378,16 @@ def main():
     start_kwargs = {"debug": False}
     if sys.platform == "win32":
         start_kwargs["gui"] = "edgechromium"
-    webview.start(_startup_flow, args=(start_in_tray,), **start_kwargs)
+    try:
+        webview.start(_startup_flow, args=(start_in_tray,), **start_kwargs)
+    finally:
+        if _widget_manager:
+            _widget_manager.shutdown()
+        if _activation_server:
+            _activation_server.close()
 
 
 if __name__ == "__main__":
-    if should_run_smoke_test():
+    if should_run_smoke_test() and "--notification-url" not in sys.argv:
         raise SystemExit(run_smoke_test())
     main()

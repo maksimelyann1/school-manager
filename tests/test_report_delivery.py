@@ -7,6 +7,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
@@ -55,7 +56,7 @@ class ReportDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.find.return_value = None
         self.refresh = self.stack.enter_context(patch.object(reports, "_refresh_lesson_from_source", new_callable=AsyncMock))
         self.notify = self.stack.enter_context(patch.object(reports, "show_system_notification", return_value=True))
-        self.stack.enter_context(patch.object(reports, "_generate_ai_report", AsyncMock(return_value="Test report")))
+        self.generate = self.stack.enter_context(patch.object(reports, "_generate_ai_report", AsyncMock(return_value="Test report")))
 
     def tearDown(self):
         self.stack.close()
@@ -195,7 +196,7 @@ class ReportDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_notification_only_after_persisted_success_and_only_once(self):
         observed = []
-        def show(title, message):
+        def show(title, message, **kwargs):
             with self.sessions() as persisted:
                 observed.append((persisted.query(ParentReportRun).one().status,
                                  persisted.get(ParentReportLesson, self.lesson.id).lesson_count))
@@ -210,6 +211,7 @@ class ReportDeliveryTests(unittest.IsolatedAsyncioTestCase):
         title, message = self.notify.call_args.args
         self.assertEqual(title, "Автозвіт відправлено")
         self.assertIn("test", message)
+        self.assertEqual(self.notify.call_args.kwargs['target'], '/parents-report?tab=runs&run_id=1')
         self.assertIn("28-09-2026", message)
 
     async def test_uncertain_delivery_notifies_only_after_recovery(self):
@@ -244,6 +246,119 @@ class ReportDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.send.assert_awaited_once()
 
 
+    async def resend(self, run_id=1, request_id=None, db=None):
+        return await reports.resend_report(run_id, reports.ResendReportRequest(
+            request_id=request_id or uuid4(), absents="", use_logika_absents=False,
+        ), db or self.db)
+
+    async def test_resend_uses_original_lesson_and_destination_without_advancing_schedule(self):
+        self.lesson.lesson_code = "М2У4"
+        self.db.commit()
+        await self.send_report()
+        new_group = Group(name="Other group", telegram_id="-999")
+        self.db.add(new_group)
+        self.db.flush()
+        self.lesson.telegram_group_id = new_group.id
+        self.lesson.lesson_code = "М3У1"
+        self.lesson.lesson_count = "20"
+        self.lesson.course = "Another course"
+        self.lesson.day = "НД"
+        self.lesson.start_time = "18:00"
+        self.lesson.absents = "New manual value"
+        self.lesson.last_report_date = None
+        self.db.commit()
+        self.refresh.reset_mock()
+        with patch.object(reports, "_create_report_followup_auto_message") as followup:
+            await self.resend()
+        historical_lesson = self.generate.await_args.args[1]
+        self.assertEqual((historical_lesson.course, historical_lesson.lesson_code), ("Frontend", "М2У4"))
+        self.assertEqual(reports._context_values(historical_lesson, self.settings, "")["date"], "28.09.2026")
+        self.assertEqual(self.send.await_args.args[1], "-123")
+        self.db.refresh(self.lesson)
+        self.assertEqual((self.lesson.course, self.lesson.lesson_code, self.lesson.lesson_count,
+                          self.lesson.day, self.lesson.start_time, self.lesson.absents, self.lesson.last_report_date),
+                         ("Another course", "М3У1", "20", "НД", "18:00", "New manual value", None))
+        run = self.db.query(ParentReportRun).order_by(ParentReportRun.id.desc()).first()
+        self.assertEqual((run.lesson_date, run.resend_of_run_id, run.is_auto, run.is_test),
+                         ("2026-09-28", 1, 0, 0))
+        self.assertEqual(run.absents, "")
+        self.refresh.assert_not_awaited()
+        followup.assert_not_called()
+
+    async def test_resend_double_click_or_repeated_http_request_sends_once(self):
+        await self.send_report()
+        request_id = uuid4()
+        other = self.sessions()
+        try:
+            results = await asyncio.gather(self.resend(request_id=request_id),
+                                           self.resend(request_id=request_id, db=other))
+        finally:
+            other.close()
+        self.assertEqual(self.send.await_count, 2)
+        self.assertEqual(sum(bool(result.get("already_sent")) for result in results), 1)
+        self.assertEqual(self.db.query(ParentReportRun).count(), 2)
+        self.assertEqual(self.lesson.lesson_count, "9")
+        with self.assertRaises(HTTPException):
+            await self.send_report()
+        self.assertEqual(self.send.await_count, 2)
+
+    async def test_uncertain_resend_blocks_new_attempts_and_recovers_without_progressing(self):
+        await self.send_report()
+        request_id = uuid4()
+        self.send.return_value = {"ok": False, "uncertain": True, "description": "Timeout"}
+        with self.assertRaises(HTTPException):
+            await self.resend(request_id=request_id)
+        self.assertEqual(self.find.await_args.kwargs["exclude_message_ids"], {321})
+        for token in [request_id, uuid4()]:
+            with self.assertRaises(HTTPException) as error:
+                await self.resend(request_id=token)
+            self.assertEqual(error.exception.status_code, 409)
+        self.lesson.last_report_date = None
+        self.db.commit()
+        self.find.return_value = 456
+        await reports.reconcile_report_deliveries(self.db, force=True)
+        result = await self.resend(request_id=request_id)
+        self.assertTrue(result["already_sent"])
+        self.assertEqual(self.send.await_count, 2)
+        self.assertEqual(self.lesson.lesson_count, "9")
+        self.assertIsNone(self.lesson.last_report_date)
+        self.assertEqual(self.db.query(ParentReportRun).filter_by(resend_of_run_id=1).one().status, "success")
+
+    async def test_definite_resend_rejection_can_retry_same_request(self):
+        await self.send_report()
+        request_id = uuid4()
+        self.send.return_value = {"ok": False, "uncertain": False, "description": "Rejected"}
+        with self.assertRaises(HTTPException):
+            await self.resend(request_id=request_id)
+        self.send.return_value = {"ok": True, "message_id": 456}
+        await self.resend(request_id=request_id)
+        self.assertEqual(self.db.query(ParentReportRun).count(), 2)
+        self.assertEqual(self.send.await_count, 3)
+        self.assertEqual(self.lesson.lesson_count, "9")
+
+    async def test_test_reports_and_old_local_reports_without_snapshot_cannot_resend(self):
+        await self.send_report(is_test=True)
+        with self.assertRaises(HTTPException):
+            await self.resend()
+        run = self.db.get(ParentReportRun, 1)
+        run.is_test = 0
+        run.lesson_snapshot = None
+        self.db.commit()
+        with self.assertRaises(HTTPException) as error:
+            await self.resend()
+        self.assertIn("не збережено тему", error.exception.detail)
+        self.assertEqual(self.send.await_count, 1)
+
+    async def test_resend_respects_test_mode(self):
+        await self.send_report()
+        self.settings.test_mode = 1
+        self.db.commit()
+        await self.resend()
+        run = self.db.query(ParentReportRun).order_by(ParentReportRun.id.desc()).first()
+        self.assertEqual(run.is_test, 1)
+        self.assertEqual(self.lesson.lesson_count, "9")
+
+
 class SystemNotificationRoutingTests(unittest.TestCase):
     def test_existing_windows_and_macos_adapters_and_global_setting(self):
         for platform, adapter in [("win32", "_show_windows_notification"), ("darwin", "_show_macos_notification")]:
@@ -255,7 +370,7 @@ class SystemNotificationRoutingTests(unittest.TestCase):
                     result = system_notifications.show_system_notification("Автозвіт відправлено", "test")
                     self.assertEqual(result, enabled)
                     if enabled:
-                        native.assert_called_once_with("Автозвіт відправлено", "test")
+                        native.assert_called_once_with("Автозвіт відправлено", "test", **({'target': '/'} if platform == 'win32' else {}))
                     else:
                         native.assert_not_called()
 
@@ -295,6 +410,8 @@ class TelegramTransportTests(unittest.IsolatedAsyncioTestCase):
                                  get_chat_history=history)
         self.assertEqual(await delivery.find_delivered_report(client, "-123", "hello", now.isoformat()), 7)
         self.assertIsNone(await delivery.find_delivered_report(client, "-123", "hello", (now + timedelta(days=7)).isoformat()))
+        self.assertIsNone(await delivery.find_delivered_report(client, "-123", "hello", now.isoformat(),
+                                                               exclude_message_ids={7}))
 
 
 class MigrationTests(unittest.TestCase):
@@ -314,6 +431,8 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(connection.execute(text("SELECT status FROM parent_report_runs")).scalar(), "success")
             self.assertEqual(connection.execute(text("SELECT lesson_report_text FROM parent_report_course_lessons")).scalar(), "Keep me")
             self.assertIn("telegram_random_id", {row[1] for row in connection.execute(text("PRAGMA table_info(parent_report_runs)"))})
+            self.assertEqual(connection.execute(text("SELECT lesson_snapshot, resend_of_run_id FROM parent_report_runs")).one(),
+                             (None, None))
         engine.dispose()
 
 

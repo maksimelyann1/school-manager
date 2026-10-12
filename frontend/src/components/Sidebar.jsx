@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
 import SidebarIcon from './SidebarIcon'
+import { IconLayoutGrid } from '@tabler/icons-react'
 import logoUrl from '../assets/logo.png'
 import { api } from '../api/client'
 import { useToast } from './ToastProvider'
@@ -16,7 +17,7 @@ const sections = [
         ['/auto-messages', 'scheduled', 'Автоповідомлення'],
         ['/templates', 'template', 'Шаблони'],
     ] },
-    { className: 'nav-menu-planner', items: [['/tasks', 'planner', 'Задачник']] },
+    { className: 'nav-menu-planner', items: [['/tasks', 'planner', 'Задачник'], ['/widgets', 'widgets', 'Віджети']] },
     { className: 'nav-menu-service', items: [
         ['/logs', 'journal', 'Журнал подій'],
         ['/settings', 'settings', 'Налаштування'],
@@ -122,7 +123,7 @@ export default function Sidebar() {
                                     onMouseEnter={event => { if (collapsed) showTooltip(event, icon, label) }}
                                     onFocus={event => { if (collapsed) showTooltip(event, icon, label) }}
                                     onMouseLeave={hideTooltip} onBlur={() => setTooltip(null)} onClick={() => setTooltip(null)}>
-                                    <SidebarIcon name={icon} />
+                                    {icon === 'widgets' ? <IconLayoutGrid className="menu-icon" size={24} stroke={1.7} /> : <SidebarIcon name={icon} />}
                                     <span className="nav-label">{label}</span>
                                 </NavLink>
                             </li>

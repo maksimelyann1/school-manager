@@ -251,6 +251,16 @@ class ReminderTests(PlannerFixture):
             asyncio.run(reminders.process_reminders()); asyncio.run(reminders.process_reminders())
         self.assertEqual(notify.call_count, 1)
         self.assertIn('3', notify.call_args.args[1])
+        self.assertEqual(notify.call_args.kwargs['target'], '/tasks?bucket=reminders')
+
+    def test_missed_reminders_view_includes_upcoming_events_once(self):
+        item = self.create(date=(datetime.now(timezone.utc) + timedelta(days=10)).date().isoformat(), kind='event')
+        self.db.add_all([PlannerReminder(item_id=item['id'], channel='system', state='missed',
+                       remind_at=(datetime.now(timezone.utc) - timedelta(hours=n)).isoformat(), updated_at=utc_now())
+                       for n in (1, 2)])
+        self.db.commit()
+        result = tasks.list_tasks(bucket='reminders', q='', limit=500, offset=0, db=self.db)
+        self.assertEqual([row['id'] for row in result['items']], [item['id']])
 
     def test_completed_does_not_notify(self):
         item = self.create(status='done')

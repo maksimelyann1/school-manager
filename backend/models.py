@@ -178,6 +178,7 @@ class ParentReportLesson(Base):
     postponed_start_at = Column(String, nullable=True)
     postponed_from_date = Column(String, nullable=True)
     postponed_created_at = Column(String, nullable=True)
+    is_paused = Column(Integer, nullable=False, default=0)
     raw_data = Column(Text, nullable=True)
     imported_at = Column(String, nullable=True)
     logika_schedule_id = Column(Integer, nullable=True, index=True)
@@ -253,6 +254,8 @@ class ParentReportRun(Base):
     telegram_chat_id = Column(String, nullable=True)
     telegram_message_id = Column(Integer, nullable=True)
     delivery_checked_at = Column(String, nullable=True)
+    lesson_snapshot = Column(Text, nullable=True)
+    resend_of_run_id = Column(Integer, nullable=True)
 
 
 class ParentReportNotification(Base):

@@ -148,6 +148,21 @@ class GoogleAcknowledgementTests(PlannerFixture):
         self.assertNotIn('reminders', writes[0][2])
         self.assertEqual(self.db.query(PlannerExternalLink).one().calendar_id, other.id)
 
+    def test_hidden_calendar_also_hides_events_created_here_without_hiding_local_tasks(self):
+        calendar = self.connect(managed=False)
+        calendar.writable = 1
+        self.db.commit()
+        self.create(title='Подія Google з програми', date='2030-01-01', kind='event',
+                    google_enabled=True, google_calendar_id=calendar.id)
+        local = self.create(title='Локальна задача', date='2030-01-01')
+        calendar.visible = 0
+        self.db.commit()
+        response = self.client.get('/api/tasks?bucket=all').json()
+        self.assertEqual([item['id'] for item in response['items']], [local['id']])
+        calendar.visible = 1
+        self.db.commit()
+        self.assertEqual(self.client.get('/api/tasks?bucket=all').json()['total'], 2)
+
     def test_new_scope_unlocks_existing_import_without_new_etag(self):
         cal = self.connect(managed=False)
         original = {'id': 'existing', 'etag': 'v1', 'summary': 'Урок',

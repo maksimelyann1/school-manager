@@ -23,6 +23,8 @@ EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 SERVICE = 'SchoolManager.Planner.Google'
+TOKEN_FIELDS = ('access_token', 'refresh_token', 'expires_at', 'expires_in', 'scope')
+refresh_lock = asyncio.Lock()
 
 
 def config_path():
@@ -55,7 +57,15 @@ def load_token(account):
 
 
 def save_token(account, value):
-    vault().set_password(SERVICE, account, json.dumps(value))
+    # Refresh responses also contain a large ID token, which Calendar never uses.
+    value = {key: value[key] for key in TOKEN_FIELDS if key in value}
+    try:
+        vault().set_password(SERVICE, account, json.dumps(value, separators=(',', ':')))
+    except Exception as error:
+        from logger import log_event
+        code = getattr(error, 'winerror', None)
+        log_event('ERROR', 'Planner', f'Не вдалося зберегти доступ Google: {type(error).__name__}, код {code or "невідомий"}')
+        raise HTTPException(503, 'Не вдалося зберегти доступ Google у захищеному сховищі. Повторіть підключення') from error
 
 
 def delete_token(account):
@@ -69,15 +79,22 @@ async def access_token(account):
         raise HTTPException(401, 'Підключіть Google повторно')
     if token.get('expires_at', 0) > time.time() + 90:
         return token['access_token']
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(TOKEN_URL, data={**client_config(), 'grant_type': 'refresh_token', 'refresh_token': token.get('refresh_token', '')})
-    if response.status_code in {400, 401}:
-        raise HTTPException(401, 'Доступ Google завершився або відкликаний. Підключіть акаунт повторно')
-    response.raise_for_status()
-    value = response.json()
-    token.update(value, expires_at=time.time() + value.get('expires_in', 3600))
-    await asyncio.to_thread(save_token, account, token)
-    return token['access_token']
+    async with refresh_lock:
+        token = await asyncio.to_thread(load_token, account)
+        if not token or not token.get('refresh_token'):
+            raise HTTPException(401, 'Підключіть Google повторно')
+        if token.get('expires_at', 0) > time.time() + 90:
+            return token['access_token']
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(TOKEN_URL, data={**client_config(), 'grant_type': 'refresh_token', 'refresh_token': token['refresh_token']})
+        if response.status_code in {400, 401}:
+            raise HTTPException(401, 'Доступ Google завершився або відкликаний. Підключіть акаунт повторно')
+        response.raise_for_status()
+        value = response.json()
+        token = {key: val for key, val in {**token, **value}.items() if key in TOKEN_FIELDS}
+        token['expires_at'] = time.time() + value.get('expires_in', 3600)
+        await asyncio.to_thread(save_token, account, token)
+        return token['access_token']
 
 
 class DesktopOAuth:

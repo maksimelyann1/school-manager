@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
+import { useNotificationFocus } from '../components/NotificationNavigation'
 import FilePreviewChip from '../components/FilePreviewChip'
 import FloatingPanel from '../components/FloatingPanel'
 import MessageComposer from '../components/MessageComposer'
@@ -89,6 +91,8 @@ function TrashIcon() {
 }
 
 function AutoMessages() {
+    const location = useLocation()
+    const focusedMessage = new URLSearchParams(location.search).get('message_id')
     const [autoMessages, setAutoMessages] = useState([])
     const [groups, setGroups] = useState([])
     const [loading, setLoading] = useState(false)
@@ -128,7 +132,9 @@ function AutoMessages() {
         fetchData()
         fetchTemplates()
         fetchFollowupSettings()
-    }, [])
+    }, [location.key])
+    useNotificationFocus(focusedMessage ? `auto-message-${focusedMessage}` : null,
+        !loading && autoMessages.some(msg => String(msg.id) === focusedMessage), location.key)
 
     useEffect(() => {
         const handlePointerDown = (event) => {
@@ -879,6 +885,9 @@ function AutoMessages() {
 
             <div className="card">
                 <h3 className="card-title" style={{ marginBottom: '20px' }}>Список автоповідомлень</h3>
+                {focusedMessage && !loading && !autoMessages.some(msg => String(msg.id) === focusedMessage) && <p role="status">
+                    Повідомлення зі сповіщення вже видалено або завершило свою роботу.
+                </p>}
 
                 {loading ? (
                     <div className="loader"><div className="spinner"></div></div>
@@ -908,7 +917,8 @@ function AutoMessages() {
                                     const followupType = msg.metadata?.type || (msg.source === 'parent_report_absent_followup' ? 'absent_followup' : '')
                                     const followupLabel = followupType === 'regular_followup' ? 'Нагадування' : 'Відпрацювання'
                                     return (
-                                    <tr key={msg.id} className={isFollowup ? 'auto-followup-row' : ''}>
+                                    <tr key={msg.id} id={`auto-message-${msg.id}`} tabIndex={-1}
+                                        className={`${isFollowup ? 'auto-followup-row' : ''} ${String(msg.id) === focusedMessage ? 'notification-target' : ''}`}>
                                         <td>
                                             <strong>{getGroupName(msg.group_id)}</strong>
                                             {isFollowup && (

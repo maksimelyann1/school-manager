@@ -162,7 +162,8 @@ async def process_reminders():
                             reminder.state = 'sent'
                             reminder.updated_at = utc_now()
                             db.commit()  # At-most-once local notification after process restart.
-                            shown = await asyncio.to_thread(show_system_notification, 'Нагадування · School Manager', item.title)
+                            shown = await asyncio.to_thread(show_system_notification, 'Нагадування · School Manager',
+                                                            item.title, target=f'/tasks?item_id={item.id}')
                             if not shown:
                                 reminder.state, reminder.error = 'missed', 'Системні сповіщення вимкнені або недоступні'
                         reminder.updated_at = utc_now()
@@ -177,7 +178,9 @@ async def process_reminders():
                     reminder.next_attempt_at = (now + timedelta(minutes=5)).isoformat()
                     db.commit()
             if missed:
-                await asyncio.to_thread(show_system_notification, 'Пропущені нагадування', f'Поки застосунок був неактивний, минув час {missed} нагадувань. Перегляньте задачник.')
+                await asyncio.to_thread(show_system_notification, 'Пропущені нагадування',
+                                        f'Поки застосунок був неактивний, минув час {missed} нагадувань. Перегляньте задачник.',
+                                        target='/tasks?bucket=reminders')
             cutoff = (now - timedelta(days=30)).isoformat()
             db.query(PlannerReminder).filter(PlannerReminder.state.in_(['sent', 'cancelled', 'elapsed', 'missed']), PlannerReminder.updated_at < cutoff).delete(synchronize_session=False)
             db.commit()

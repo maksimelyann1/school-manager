@@ -241,15 +241,6 @@
 .planner-reminders .planner-fields { margin-bottom: 8px; }
 .planner-reminder { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 8px 0; }
 .planner-reminder small { display: block; color: var(--text-secondary); }
-.planner-widget .page-header { align-items: flex-start; gap: 8px; }
-.planner-widget .page-header h2 { font-size: 18px; }
-.planner-widget .page-header p { font-size: 11px; }
-.planner-widget .btn { padding: 5px 8px; font-size: 11px; }
-.planner-widget .planner-tabs { width: 100%; justify-content: space-between; }
-.planner-widget .planner-tabs button { padding: 6px; font-size: 11px; }
-.planner-open-main { padding: 0; border: 0; background: none; color: var(--primary-light); font: inherit; font-size: 12px; cursor: pointer; }
-body:has(.planner-widget) .sidebar { display: none; }
-body:has(.planner-widget) .main-content { margin-left: 0; padding: 12px; }
 @media (max-width: 1120px) { .planner-layout { grid-template-columns: minmax(0, 1fr); } }
 @container (max-width: 1000px) { .planner-layout { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 650px) { .planner-calendar-toolbar strong { order: -1; width: 100%; } .planner-fields { flex-wrap: wrap; } .planner-fields > label, .planner-fields > .planner-select-field { min-width: 130px; } .planner .page-header { flex-wrap: wrap; } .planner .fc { font-size: 10px; } }

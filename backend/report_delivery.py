@@ -67,7 +67,7 @@ async def send_report_message(client, chat_id: str, text: str, random_id: str, l
 
 
 async def find_delivered_report(client, chat_id: str, text: str, created_at: str,
-                                *, legacy: bool = False) -> int | None:
+                                *, legacy: bool = False, exclude_message_ids=()) -> int | None:
     """Match only own messages, exact rendered content and a bounded send window."""
     parsed = await utils.parse_text_entities(client, text, None, None)
     expected = parsed["message"].strip()
@@ -76,6 +76,7 @@ async def find_delivered_report(client, chat_id: str, text: str, created_at: str
         created = created.astimezone()
     earliest = created - timedelta(minutes=20 if legacy else 1)
     latest = created + timedelta(minutes=30)
+    excluded = set(exclude_message_ids)
     async for message in client.get_chat_history(int(chat_id), limit=200):
         sent_at = message.date
         if not sent_at:
@@ -86,6 +87,6 @@ async def find_delivered_report(client, chat_id: str, text: str, created_at: str
             break
         if sent_at > latest:
             continue
-        if message.outgoing and str(message.text or message.caption or "").strip() == expected:
+        if message.id not in excluded and message.outgoing and str(message.text or message.caption or "").strip() == expected:
             return message.id
     return None

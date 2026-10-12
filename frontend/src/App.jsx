@@ -10,6 +10,7 @@ import Logs from './pages/Logs'
 import Info from './pages/Info'
 import ErrorBoundary from './components/ErrorBoundary'
 import AppContextMenu from './components/AppContextMenu'
+import NotificationNavigation from './components/NotificationNavigation'
 import TelegramAuthPanel from './components/TelegramAuthPanel'
 import Sidebar from './components/Sidebar'
 import StartupStatusProvider from './components/StartupStatusContext'
@@ -17,12 +18,13 @@ import logoUrl from './assets/logo.png'
 import { API_URL, reportClientError } from './api/client'
 
 const TaskPlanner = lazy(() => import('./pages/TaskPlanner'))
+const Widgets = lazy(() => import('./pages/Widgets'))
 
 
 function AuthGate() {
     const navigate = useNavigate()
     const { pathname } = useLocation()
-    const isPlanner = pathname === '/tasks' || pathname === '/tasks/widget'
+    const isPlanner = pathname === '/tasks' || pathname === '/widgets'
     const [checking, setChecking] = useState(true)
     const [isConnected, setIsConnected] = useState(true)
     const [checkError, setCheckError] = useState('')
@@ -120,6 +122,7 @@ function AuthGate() {
 function App() {
     return (
         <BrowserRouter>
+            <NotificationNavigation />
             <StartupStatusProvider>
             <div className="app">
                 <Sidebar />
@@ -131,7 +134,7 @@ function App() {
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/parents-report" element={<ParentsReport />} />
                         <Route path="/tasks" element={<Suspense fallback={<p role="status">Завантаження календаря…</p>}><ErrorBoundary><TaskPlanner /></ErrorBoundary></Suspense>} />
-                        <Route path="/tasks/widget" element={<Suspense fallback={<p role="status">Завантаження задач…</p>}><ErrorBoundary><TaskPlanner widget /></ErrorBoundary></Suspense>} />
+                        <Route path="/widgets" element={<Suspense fallback={<p role="status">Завантаження віджетів…</p>}><Widgets /></Suspense>} />
                         <Route path="/messages" element={<SendMessage />} />
                         <Route path="/auto-messages" element={<AutoMessages />} />
                         <Route path="/settings" element={<Settings />} />

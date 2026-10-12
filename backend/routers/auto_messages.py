@@ -695,6 +695,7 @@ async def send_auto_message_pyrogram(auto_message_id: int):
                     show_system_notification(
                         "Автоповідомлення оброблено",
                         f"{group.name}: наступне повідомлення додано на {next_target.strftime('%d.%m %H:%M')}",
+                        target=f"/auto-messages?message_id={auto_message_id}",
                     )
                 elif status == "skipped":
                     log_event("INFO", "AutoMsg", f"Вже заплановано для '{group.name}', пропускаємо")
@@ -788,6 +789,7 @@ async def schedule_telegram_messages():
             show_system_notification(
                 "Автоповідомлення заплановано",
                 f"Додано {scheduled_count} повідомлень у Telegram, пропущено {skipped_count} вже запланованих.",
+                target="/auto-messages",
             )
         return {
             "scheduled_count": scheduled_count,
@@ -842,6 +844,7 @@ async def schedule_created_auto_message_in_telegram(auto_message_id: int):
             show_system_notification(
                 "Автоповідомлення заплановано",
                 f"{group.name}: {target_datetime.strftime('%d.%m %H:%M')}",
+                target=f"/auto-messages?message_id={auto_message_id}",
             )
         elif status == "skipped":
             log_event("INFO", "AutoMsg", f"Фонове Telegram-планування пропущено для '{group.name}': вже заплановано ({elapsed:.2f} с)")

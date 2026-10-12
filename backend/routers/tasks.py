@@ -161,17 +161,22 @@ def validated_values(db, data, item_id=None):
 
 @router.get("")
 def list_tasks(start: date | None = None, end: date | None = None,
-               bucket: Literal["calendar", "undated", "overdue", "trash", "all"] = "calendar",
+               bucket: Literal["calendar", "undated", "overdue", "trash", "all", "reminders"] = "calendar",
                q: str = Query(default="", max_length=240), category: str = "", source: str = "",
                completed: bool = False, timezone_name: str = "Europe/Kyiv",
                limit: int = Query(default=500, ge=1, le=1000), offset: int = Query(default=0, ge=0),
-               db: Session = Depends(get_db)):
+               db: Session = Depends(get_db), track_activity: bool = True):
     tz = zone(timezone_name)
     from services.planner.google_sync import touch_activity
-    touch_activity()
+    if track_activity:
+        touch_activity()
     query = db.query(PlannerItem)
     visible_ids = db.query(PlannerExternalLink.item_id).join(PlannerCalendar, PlannerCalendar.id == PlannerExternalLink.calendar_id).join(PlannerConnection, PlannerConnection.id == PlannerCalendar.connection_id).filter(PlannerCalendar.visible == 1, PlannerConnection.state.in_(['connected', 'reauth', 'error']))
     query = query.filter(or_(PlannerItem.source != 'google', PlannerItem.id.in_(visible_ids)))
+    hidden_calendars = db.query(PlannerCalendar.id).join(PlannerConnection, PlannerConnection.id == PlannerCalendar.connection_id).filter(
+        PlannerCalendar.visible == 0, PlannerCalendar.managed == 0, PlannerConnection.state.in_(['connected', 'reauth', 'error']))
+    query = query.filter(or_(PlannerItem.source == 'google', PlannerItem.google_enabled == 0,
+                            PlannerItem.google_calendar_id.is_(None), PlannerItem.google_calendar_id.notin_(hidden_calendars)))
     query = query.filter(PlannerItem.deleted_at.isnot(None) if bucket == "trash" else PlannerItem.deleted_at.is_(None))
     if bucket != "trash" and not completed:
         query = query.filter(PlannerItem.status == "open")
@@ -201,6 +206,10 @@ def list_tasks(start: date | None = None, end: date | None = None,
             and_(PlannerItem.start_at.isnot(None), PlannerItem.start_at < now),
             and_(PlannerItem.start_at.is_(None), PlannerItem.start_date < datetime.now(tz).date().isoformat()),
         ))
+    elif bucket == "reminders":
+        missed_ids = db.query(PlannerReminder.item_id).filter(
+            PlannerReminder.channel == "system", PlannerReminder.state == "missed")
+        query = query.filter(PlannerItem.id.in_(missed_ids))
     if bucket == 'calendar':
         data = expand_calendar(query.order_by(PlannerItem.start_date).all(), db, start, end, tz)
         return {'items': data[offset:offset + limit], 'total': len(data), 'has_more': len(data) > offset + limit}
