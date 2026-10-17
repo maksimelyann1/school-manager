@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.13",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.13/SchoolManager_Setup.exe",
+  "changelog": "• Виправлено визначення складу учнів для звітів Logika: враховуються статус учня в групі та дата відрахування чи переведення. Перевіряється повнота журналу саме потрібного заняття.\n• Додано автоматичне узгодження одночасних змін подій у програмі й Google Calendar за часом оновлення, зокрема відновлення раніше заблокованих синхронізацій.\n• Додано відображення кольорів Google-календарів і синхронізацію кольорів подій.\n• Поліпшено підключення Google: зрозумілі стани очікування, скасування та завершення входу, оновлена сторінка результату авторизації й діагностика помилок.\n• Оновлено редактор подій, початковий вибір Google-календаря та відображення стану оновлення.\n• Програма запам’ятовує розмір головного вікна й підлаштовує його під доступний екран.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.13/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.13/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

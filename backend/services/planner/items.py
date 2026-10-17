@@ -89,13 +89,17 @@ def serialize(item, db=None, related=None):
                 start=item.start_at or item.start_date, end=item.end_at or item.end_date,
                 all_day=not bool(item.start_at), read_only=bool(item.read_only), google_enabled=bool(item.google_enabled),
                 google_calendar_id=item.google_calendar_id)
+    if db is not None and item.google_calendar_id:
+        calendar = db.get(PlannerCalendar, item.google_calendar_id)
+        data['calendar_color'] = calendar.color if calendar else None
     if db is not None or related is not None:
         job, link, reminders = related if related is not None else (
             db.query(PlannerSyncJob).filter_by(item_id=item.id).first(),
             db.query(PlannerExternalLink).filter_by(item_id=item.id).first(),
             db.query(PlannerReminder).filter_by(item_id=item.id).all())
-        data["sync_state"] = "conflict" if link and link.conflict else job.state if job else "synced" if link else "local"
-        data["sync_error"] = job.error if job else None
+        legacy_conflict = bool(link and link.conflict) or bool(job and job.state == 'conflict')
+        data["sync_state"] = "pending" if legacy_conflict else job.state if job else "synced" if link else "local"
+        data["sync_error"] = job.error if job and not legacy_conflict else None
         data["reminders"] = [{"id": r.id, "channel": r.channel, "remind_at": r.remind_at,
                                "state": r.state, "error": r.error} for r in reminders]
     return data
@@ -114,8 +118,12 @@ def serialize_many(items, db):
     for file in db.query(PlannerAttachment).filter(PlannerAttachment.item_id.in_(ids)).order_by(PlannerAttachment.created_at):
         attachments.setdefault(file.item_id, []).append({"id": file.id, "name": file.original_filename, "size": file.size})
     result = [serialize(item, related=(jobs.get(item.id), links.get(item.id), reminders.get(item.id, []))) for item in items]
+    calendar_ids = {item.google_calendar_id for item in items if item.google_calendar_id}
+    calendar_colors = {calendar.id: calendar.color for calendar in
+                       db.query(PlannerCalendar).filter(PlannerCalendar.id.in_(calendar_ids))} if calendar_ids else {}
     for data in result:
         data["attachments"] = attachments.get(data["id"], [])
+        data['calendar_color'] = calendar_colors.get(data['google_calendar_id'])
     return result
 
 

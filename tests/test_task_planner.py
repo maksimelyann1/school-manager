@@ -170,14 +170,15 @@ class GoogleSyncTests(PlannerFixture):
         self.assertEqual(self.db.query(PlannerItem).count(), 1)
         self.assertEqual(self.db.query(PlannerItem).one().title, 'Нова тема')
 
-    def test_remote_and_local_conflict_keeps_both(self):
+    def test_remote_and_local_changes_resolve_automatically(self):
         google.apply_remote(self.db, self.calendar, self.remote()); self.db.commit()
         item = self.db.query(PlannerItem).one()
         self.client.patch('/api/tasks/' + item.id, json={'revision': 1, 'title': 'Локальна тема'})
         self.db.expire_all()
         google.apply_remote(self.db, self.calendar, self.remote(etag='v2', summary='Тема з телефона')); self.db.commit()
         self.assertEqual(self.db.get(PlannerItem, item.id).title, 'Локальна тема')
-        self.assertEqual(json.loads(self.db.query(PlannerExternalLink).one().conflict)['summary'], 'Тема з телефона')
+        self.assertIsNone(self.db.query(PlannerExternalLink).one().conflict)
+        self.assertEqual(self.db.query(PlannerSyncJob).one().state, 'pending')
 
     def test_external_recurrence_is_readonly(self):
         google.apply_remote(self.db, self.calendar, self.remote(recurringEventId='series')); self.db.commit()
@@ -214,7 +215,7 @@ class GoogleSyncTests(PlannerFixture):
 
     def test_410_resync_preserves_local_pending_changes(self):
         self.create(date='2030-01-01', google_enabled=True)
-        self.calendar.sync_token, self.calendar.sync_format = 'expired', 1; self.db.commit()
+        self.calendar.sync_token, self.calendar.sync_format = 'expired', 3; self.db.commit()
         api = SimpleNamespace(pages=AsyncMock(side_effect=[google.GoogleError(410), ([], 'new-token')]))
         asyncio.run(google.pull_calendar(self.db, api, self.calendar))
         self.assertEqual(self.db.query(PlannerItem).count(), 1)
@@ -222,7 +223,7 @@ class GoogleSyncTests(PlannerFixture):
         self.assertEqual(self.calendar.sync_token, 'new-token')
 
     def test_pagination_not_advanced_on_second_page_error(self):
-        self.calendar.sync_token, self.calendar.sync_format = 'before', 1; self.db.commit()
+        self.calendar.sync_token, self.calendar.sync_format = 'before', 3; self.db.commit()
         api = google.GoogleAPI('fake')
         api.request = AsyncMock(side_effect=[{'items': [self.remote()], 'nextPageToken': 'page2'}, google.GoogleError(500)])
         try:

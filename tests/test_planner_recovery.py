@@ -8,12 +8,113 @@ from sqlalchemy import create_engine, inspect, text
 
 from test_task_planner import PlannerFixture
 from task_models import PlannerConnection, PlannerItem, PlannerSyncJob
+from services.planner.google_errors import safe_google_error
 from services.planner import google_sync as google
 from services.planner.schema import ensure_planner_migrations
 from routers import planner_google
 
 
 class PlannerRecoveryTests(PlannerFixture):
+    def test_manual_sync_refreshes_calendar_names_and_access_before_syncing_events(self):
+        calendar = self.connect(managed=False)
+        calendar.visible = 0
+        self.db.get(PlannerConnection, 'account-1').events_write = 1
+        self.db.commit()
+        api = SimpleNamespace(pages=AsyncMock(return_value=([{
+            'id': calendar.remote_id, 'summary': 'Нова назва', 'accessRole': 'writer',
+        }], None)), close=AsyncMock())
+
+        async def sync_events(force=False):
+            self.db.refresh(calendar)
+            self.assertEqual((calendar.name, calendar.writable, calendar.visible), ('Нова назва', 1, 0))
+            api.close.assert_awaited_once()
+            self.assertTrue(force)
+            return {'state': 'connected'}
+
+        with patch.object(planner_google, 'access_token', AsyncMock(return_value='fake')), \
+             patch.object(planner_google, 'GoogleAPI', return_value=api), \
+             patch.object(planner_google, 'sync_google', side_effect=sync_events) as sync:
+            response = self.client.post('/api/planner/google/sync')
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['state'], 'connected')
+        sync.assert_awaited_once_with(force=True)
+
+    def test_manual_sync_stops_if_calendar_discovery_fails(self):
+        self.connect()
+        api = SimpleNamespace(pages=AsyncMock(side_effect=google.GoogleError(503)), close=AsyncMock())
+        with patch.object(planner_google, 'access_token', AsyncMock(return_value='fake')), \
+             patch.object(planner_google, 'GoogleAPI', return_value=api), \
+             patch.object(planner_google, 'sync_google', AsyncMock()) as sync, patch('logger.log_event'):
+            response = self.client.post('/api/planner/google/sync')
+        self.assertGreaterEqual(response.status_code, 400)
+        sync.assert_not_awaited()
+        api.close.assert_awaited_once()
+
+    def test_discovery_restores_marked_app_calendar_without_creating_duplicate(self):
+        calendar = self.connect(managed=False)
+        calendar.visible = 0
+        self.db.commit()
+        api = SimpleNamespace(pages=AsyncMock(return_value=([{
+            'id': calendar.remote_id, 'summary': 'School Manager', 'accessRole': 'owner',
+            'description': planner_google.calendar_marker('google-sub'),
+        }], None)), close=AsyncMock(), request=AsyncMock())
+        with patch.object(planner_google, 'access_token', AsyncMock(return_value='fake')), \
+             patch.object(planner_google, 'GoogleAPI', return_value=api), patch('logger.log_event'):
+            response = self.client.post('/api/planner/google/calendars')
+        self.assertEqual(response.status_code, 200, response.text)
+        self.db.refresh(calendar)
+        self.assertEqual((calendar.managed, calendar.visible, calendar.writable), (1, 1, 1))
+        self.assertEqual(self.db.query(type(calendar)).count(), 1)
+        api.request.assert_not_awaited()
+        api.close.assert_awaited_once()
+
+    def test_discovery_does_not_adopt_calendar_by_name_or_other_owner_marker(self):
+        calendar = self.connect(managed=False)
+        for description, role in [(None, 'owner'), ('School Manager planner wrong-account', 'owner'),
+                                  (planner_google.calendar_marker('google-sub'), 'writer')]:
+            with self.subTest(description=description, role=role):
+                api = SimpleNamespace(pages=AsyncMock(return_value=([{
+                    'id': calendar.remote_id, 'summary': 'School Manager', 'accessRole': role,
+                    'description': description,
+                }], None)), close=AsyncMock())
+                with patch.object(planner_google, 'access_token', AsyncMock(return_value='fake')), \
+                     patch.object(planner_google, 'GoogleAPI', return_value=api):
+                    self.assertEqual(self.client.post('/api/planner/google/calendars').status_code, 200)
+                self.db.refresh(calendar)
+                self.assertFalse(calendar.managed)
+
+    def test_oauth_cancellation_notice_is_separate_from_connected_account(self):
+        self.connect()
+        fake_oauth = SimpleNamespace(state='idle', error=None, notice='Вхід у Google не завершено')
+        with patch.object(planner_google, 'oauth', fake_oauth):
+            response = self.client.get('/api/planner/google/status').json()
+        self.assertEqual(response['connection']['state'], 'connected')
+        self.assertIsNone(response['oauth_error'])
+        self.assertEqual(response['oauth_notice'], fake_oauth.notice)
+
+    def test_connection_failure_diagnostics_include_safe_cause_codes(self):
+        error = httpx.ConnectError('PRIVATE token=SECRET', request=httpx.Request('GET', 'https://example.test/?token=SECRET'))
+        error.__cause__ = OSError(10061, 'PRIVATE details')
+        detail = safe_google_error(error)
+        self.assertIn('httpx.ConnectError', detail)
+        self.assertIn('errno=10061', detail)
+        self.assertNotIn('SECRET', detail)
+        self.assertNotIn('PRIVATE', detail)
+
+    def test_diagnostic_export_includes_google_connection_and_calendar_state(self):
+        self.connect()
+        from routers import system
+        from services.planner import google_auth
+        fake_oauth = SimpleNamespace(state='idle', error=None, stage=None, notice='Вхід не завершено')
+        with patch.object(system, 'SessionLocal', self.sessions), \
+             patch.object(system, 'get_runtime_data_dir', return_value=self.tmp.name), \
+             patch.object(google_auth, 'oauth', fake_oauth):
+            content = system._build_diagnostic_log()
+        self.assertIn('Google Calendar State', content)
+        self.assertIn('connection_state: connected', content)
+        self.assertIn('managed: 1', content)
+        self.assertIn('oauth_notice: Вхід не завершено', content)
+
     def test_reconnect_reuses_account_and_resets_failed_attempts(self):
         self.connect()
         connection = self.db.get(PlannerConnection, 'account-1')

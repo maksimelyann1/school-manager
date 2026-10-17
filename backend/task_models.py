@@ -72,6 +72,7 @@ class PlannerCalendar(Base):
     connection_id = Column(String, ForeignKey("planner_connections.id"), nullable=False)
     remote_id = Column(String, nullable=False)
     name = Column(String, nullable=False)
+    color = Column(String(7), nullable=True)
     managed = Column(Integer, nullable=False, default=0)
     access_role = Column(String, nullable=False, default='reader')
     writable = Column(Integer, nullable=False, default=0)

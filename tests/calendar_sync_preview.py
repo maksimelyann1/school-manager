@@ -12,7 +12,7 @@ from task_models import PlannerCalendar, PlannerConnection, PlannerItem, Planner
 
 day = datetime.now(ZoneInfo('Europe/Kyiv')).date()
 events = {'app': {}, 'primary': {}, 'holidays': {}}
-events['primary']['imported'] = {'id': 'imported', 'etag': 'v1', 'summary': 'ТЕСТ · Урок із Google',
+events['primary']['imported'] = {'id': 'imported', 'etag': 'v1', 'summary': 'ТЕСТ · Урок із Google', 'colorId': '3',
     'start': {'dateTime': f'{day}T15:00:00+03:00', 'timeZone': 'Europe/Kyiv'},
     'end': {'dateTime': f'{day}T16:00:00+03:00', 'timeZone': 'Europe/Kyiv'}}
 events['holidays']['holiday'] = {'id': 'holiday', 'etag': 'v1', 'summary': 'ТЕСТ · Свято',
@@ -22,7 +22,7 @@ calls, client_errors = [], []
 class FakeGoogle:
     async def pages(self, path, params=None):
         if path == '/users/me/calendarList':
-            return ([{'id': key, 'summary': name, 'accessRole': role} for key, name, role in
+            return ([{'id': key, 'summary': name, 'accessRole': role, 'backgroundColor': '#417a62'} for key, name, role in
                      [('app', 'School Manager', 'owner'), ('primary', 'Мій календар', 'owner'), ('holidays', 'Свята', 'reader')]], None)
         calendar = path.split('/')[2]
         return list(events[calendar].values()), 'new-sync-token'
@@ -89,7 +89,7 @@ def checks():
 
 @app.post('/api/preview/remote-change')
 def remote_change():
-    events['primary']['imported'].update(summary='ТЕСТ · Змінено в Google', etag='v3')
+    events['primary']['imported'].update(summary='ТЕСТ · Змінено в Google', etag='v3', colorId='10')
     return {'ok': True}
 
 app.router.routes.append(frontend_route)

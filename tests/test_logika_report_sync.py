@@ -101,6 +101,19 @@ class LogikaReportSyncTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.client.get_absent_students.return_value = []
         self.client.get_attendance.side_effect = lambda schedule_id: attendance(schedule_id)
+        self.latest_attendance = []
+        def remember_attendance(records, schedule_id):
+            parsed = parse_attendance(records, schedule_id)
+            self.latest_attendance = parsed
+            return parsed
+        self.stack.enter_context(patch('logika_client.parse_attendance', side_effect=remember_attendance))
+        def roster(group_id):
+            schedule_id = self.client.get_attendance.call_args.args[0]
+            target = next((item for item in self.client.get_group_schedule.return_value
+                           if item['id'] == schedule_id), {})
+            count = target.get('studentsAmount', len(self.latest_attendance))
+            return [self.member(index) for index in range(1, count + 1)]
+        self.client.get_group_students.side_effect = roster
         self.stack.enter_context(patch("logika_client.LogikaClient", return_value=self.client))
         self.stack.enter_context(patch.object(logika, "get_authenticated_client", return_value=self.client))
         self.ai = AsyncMock()
@@ -128,6 +141,10 @@ class LogikaReportSyncTests(unittest.IsolatedAsyncioTestCase):
     async def send_report(self, is_auto=True):
         return await reports._send_lesson_report(
             self.db, self.lesson, self.settings, None, self.lesson.absents, is_auto, False)
+
+    def member(self, student_id, status='ACTIVE', changed='2026-01-01T00:00:00'):
+        return {'studentId': student_id, 'groupId': 77,
+                'status': {'status': status, 'statusUpdateDate': changed}}
 
     async def test_swapped_topics_on_two_dates_reach_ai_and_are_persisted_first(self):
         observed = []
@@ -226,6 +243,79 @@ class LogikaReportSyncTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as error:
             await self.send_report()
         self.assertIn("повного журналу", error.exception.detail)
+        self.send.assert_not_awaited()
+
+    async def test_extra_no_lesson_record_does_not_block_complete_group_report(self):
+        self.config.auto_fetch_absents = 1
+        self.db.commit()
+        self.client.get_group_schedule.return_value = [platform_lesson(studentsAmount=6)]
+        self.client.get_attendance.side_effect = lambda schedule_id: attendance(schedule_id,
+            ("PRESENT", "PRESENT", "PRESENT", "PRESENT", "PRESENT", "NO_LESSON", "ABSENT"))
+        self.client.get_group_students.side_effect = None
+        self.client.get_group_students.return_value = [self.member(i, 'EXPELLED' if i in {6, 8} else 'ACTIVE')
+                                                     for i in range(1, 9)]
+        await self.send_report()
+        self.send.assert_awaited_once()
+        self.assertEqual(self.lesson.absents, "Учень 7")
+        self.assertTrue(any("неактивних учнів 2" in str(call) for call in self.log.call_args_list))
+
+    async def test_manual_report_ignores_extra_no_lesson_and_preserves_user_absents(self):
+        self.config.auto_fetch_absents = 1
+        self.db.commit()
+        self.client.get_group_schedule.return_value = [platform_lesson(studentsAmount=3)]
+        self.client.get_attendance.side_effect = lambda schedule_id: attendance(schedule_id,
+            ("PRESENT", "ABSENT", "PRESENT", "NO_LESSON"))
+        self.client.get_group_students.side_effect = None
+        self.client.get_group_students.return_value = [self.member(i, 'TRANSFERRED' if i == 4 else 'ACTIVE')
+                                                     for i in range(1, 5)]
+        await self.send_report(is_auto=False)
+        self.send.assert_awaited_once()
+        self.client.get_attendance.assert_called_once_with(101)
+        self.assertEqual(self.lesson.absents, "Введено вручну")
+
+    async def test_no_lesson_within_expected_roster_still_requires_review(self):
+        self.client.get_group_schedule.return_value = [platform_lesson(studentsAmount=3)]
+        self.client.get_attendance.side_effect = lambda schedule_id: attendance(schedule_id,
+            ("PRESENT", "ABSENT", "NO_LESSON"))
+        with self.assertRaises(HTTPException) as error:
+            await self.send_report()
+        self.assertIn("невизначений статус", error.exception.detail)
+        self.send.assert_not_awaited()
+
+    async def test_extra_no_lesson_never_masks_missing_student(self):
+        self.client.get_group_schedule.return_value = [platform_lesson(studentsAmount=6)]
+        self.client.get_attendance.side_effect = lambda schedule_id: attendance(schedule_id,
+            ("PRESENT", "ABSENT", "NO_LESSON"))
+        with self.assertRaises(HTTPException) as error:
+            await self.send_report()
+        self.assertIn("активних учнів 6, відміток 3", error.exception.detail)
+        self.send.assert_not_awaited()
+
+    async def test_extra_actual_student_still_requires_review(self):
+        self.client.get_group_schedule.return_value = [platform_lesson(studentsAmount=3)]
+        self.client.get_attendance.side_effect = lambda schedule_id: attendance(schedule_id,
+            ("PRESENT", "PRESENT", "ABSENT", "PRESENT"))
+        with self.assertRaises(HTTPException) as error:
+            await self.send_report()
+        self.assertIn("поза перевіреним складом", error.exception.detail)
+        self.send.assert_not_awaited()
+
+    async def test_extra_no_lesson_does_not_bypass_individual_or_pair_safeguards(self):
+        for expected, states, reason in [
+            (1, ("ABSENT", "NO_LESSON"), "єдиний учень"),
+            (2, ("PRESENT", "ABSENT", "NO_LESSON"), "парному занятті"),
+        ]:
+            with self.subTest(expected=expected):
+                self.client.get_group_schedule.return_value = [platform_lesson(studentsAmount=expected)]
+                self.client.get_attendance.side_effect = lambda schedule_id: attendance(schedule_id, states)
+                self.client.get_group_students.side_effect = None
+                self.client.get_group_students.return_value = [self.member(i, 'EXPELLED' if i == expected + 1 else 'ACTIVE')
+                                                             for i in range(1, expected + 2)]
+                with self.assertRaises(HTTPException) as error:
+                    await self.send_report()
+                self.assertIn(reason, error.exception.detail)
+                self.db.rollback()
+        self.ai.post.assert_not_awaited()
         self.send.assert_not_awaited()
 
     async def test_incomplete_wrong_or_conflicting_journal_never_sends(self):

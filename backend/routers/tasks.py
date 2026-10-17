@@ -347,7 +347,7 @@ def edit_task(item_id: str, payload: EditTask, db: Session = Depends(get_db)):
 
 @router.patch("/{item_id}/color")
 def set_event_color(item_id: str, payload: EventColor, db: Session = Depends(get_db)):
-    item = get_item(db, item_id)
+    item = get_item(db, item_id, writable=True)
     if item.deleted_at:
         raise HTTPException(409, "Спочатку відновіть задачу з кошика")
     changed = db.execute(update(PlannerItem).where(PlannerItem.id == item_id, PlannerItem.revision == payload.revision).values(
@@ -356,6 +356,7 @@ def set_event_color(item_id: str, payload: EventColor, db: Session = Depends(get
         db.rollback()
         raise HTTPException(409, "Задача вже змінилася. Оновіть список")
     db.refresh(item)
+    queue_sync(db, item)
     db.commit()
     return serialize(item, db)
 

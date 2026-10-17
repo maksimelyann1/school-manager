@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse
+from services.planner.google_errors import safe_google_error
 
 
 class PlannerRoute(APIRoute):
@@ -16,6 +17,6 @@ class PlannerRoute(APIRoute):
             except Exception as error:
                 from logger import log_event
                 # Log operation/type, never OAuth responses or private event contents.
-                log_event('ERROR', 'Planner', f'Помилка задачника: {request.method} {request.url.path}, {type(error).__name__}')
+                log_event('ERROR', 'Planner', f'Помилка задачника: {request.method} {request.url.path}; {safe_google_error(error)}')
                 return JSONResponse(status_code=503, content={'detail': 'Не вдалося виконати дію задачника. Дані збережені; спробуйте ще раз'})
         return handler

@@ -8,7 +8,7 @@
     stroke: none;
 }
 
-.sidebar-nav .menu-icon :is(.menu-icon-drawing, .menu-icon-plane, .menu-icon-check, .menu-icon-front-sheet, .menu-icon-back-sheet, .menu-icon-gear, .menu-icon-question) {
+.sidebar-nav .menu-icon :is(.menu-icon-drawing, .menu-icon-tiles, .menu-icon-plane, .menu-icon-check, .menu-icon-front-sheet, .menu-icon-back-sheet, .menu-icon-gear, .menu-icon-question) {
     transform-box: view-box;
     transform-origin: 12px 12px;
 }
@@ -27,6 +27,9 @@
 @media (prefers-reduced-motion: no-preference) {
     .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-drawing {
         animation: menu-home-welcome 600ms ease-out;
+    }
+    .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-tiles {
+        animation: menu-widgets-turn 800ms ease-in-out;
     }
     .sidebar-nav .nav-item:is(:hover, :focus-visible) .menu-icon-plane {
         animation: menu-plane-send 700ms ease-in-out;
@@ -66,6 +69,10 @@
     0%, 100% { transform: translateY(0) scale(1); }
     35% { transform: translateY(-1.2px) scale(1.05); }
     65% { transform: translateY(.5px) scale(.98); }
+}
+@keyframes menu-widgets-turn {
+    0%, 100% { transform: rotate(0); }
+    55% { transform: rotate(90deg); }
 }
 @keyframes menu-plane-send {
     0%, 100% { transform: translate(0, 0) rotate(0); }

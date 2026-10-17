@@ -147,7 +147,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.12.0",
+    version="2.13.0",
     lifespan=lifespan
 )
 
@@ -265,7 +265,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.12 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.13 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }

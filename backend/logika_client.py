@@ -46,6 +46,40 @@ def absent_student_names(records):
             if (name := str(record["studentId"].get("value") or "").strip())]
 
 
+def group_lesson_attendance(records, members, group_id, lesson_date):
+    """Exclude inactive group memberships, retaining attendance before their exit date."""
+    if not isinstance(members, list):
+        raise ValueError("Logika повернула некоректний склад групи")
+    included, excluded, seen = set(), set(), set()
+    for member in members:
+        if not isinstance(member, dict) or str(member.get('groupId')) != str(group_id) or not member.get('studentId'):
+            raise ValueError("Не вдалося перевірити склад потрібної групи Logika")
+        identity = str(member['studentId'])
+        if identity in seen:
+            raise ValueError("У складі групи Logika є повторні записи учня")
+        seen.add(identity)
+        value = member.get('status')
+        if not isinstance(value, dict):
+            raise ValueError("Не вдалося визначити статус учня в групі Logika")
+        state = str(value.get('status') or '').upper()
+        if state not in {'ACTIVE', 'EXPELLED', 'TRANSFERRED', 'DIDNT_BUY', 'GRADUATE'}:
+            raise ValueError("У Logika невідомий статус учня в групі")
+        changed = value.get('statusUpdateDate')
+        try:
+            exit_date = datetime.fromisoformat(changed.replace('Z', '+00:00')).date() if changed else None
+        except (ValueError, AttributeError):
+            raise ValueError("У Logika некоректна дата зміни статусу учня")
+        inactive = state != 'ACTIVE' and (exit_date is None or exit_date <= lesson_date)
+        (excluded if inactive else included).add(identity)
+    if any(str(record['studentId']['key']) not in seen for record in records):
+        raise ValueError("Журнал Logika містить учня поза перевіреним складом групи")
+    filtered = [record for record in records if str(record['studentId']['key']) in included]
+    if {str(record['studentId']['key']) for record in filtered} != included:
+        raise ValueError(f"У Logika немає повного журналу учнів цього заняття: "
+                         f"активних учнів {len(included)}, відміток {len(filtered)}")
+    return filtered, len(excluded)
+
+
 class LogikaAuthError(Exception):
     """Помилка авторизації Logika."""
     pass
@@ -281,6 +315,17 @@ class LogikaClient:
             raise Exception(f"Не вдалося отримати журнал уроку {schedule_id}: HTTP {resp.status_code}")
         return parse_attendance(resp.json(), schedule_id)
 
-    def get_absent_students(self, schedule_id: int) -> List[str]:
+    def get_group_students(self, group_id: int) -> List[Dict[str, Any]]:
+        response = self._authorized_request('GET', f'{LOGIKA_API_URL}/groups/{group_id}/students/all')
+        if response.status_code != 200:
+            raise Exception(f'Не вдалося перевірити склад групи Logika: HTTP {response.status_code}')
+        values = response.json()
+        if not isinstance(values, list):
+            raise ValueError('Logika повернула некоректний склад групи')
+        return values
+
+    def get_absent_students(self, schedule_id: int, *, group_id: int, lesson_date) -> List[str]:
         """Повертає список імен учнів, які були відсутні на уроці."""
-        return absent_student_names(self.get_attendance(schedule_id))
+        records, _ = group_lesson_attendance(self.get_attendance(schedule_id),
+            self.get_group_students(group_id), group_id, lesson_date)
+        return absent_student_names(records)

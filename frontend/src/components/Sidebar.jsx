@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
 import SidebarIcon from './SidebarIcon'
-import { IconLayoutGrid } from '@tabler/icons-react'
 import logoUrl from '../assets/logo.png'
 import { api } from '../api/client'
 import { useToast } from './ToastProvider'
@@ -123,7 +122,7 @@ export default function Sidebar() {
                                     onMouseEnter={event => { if (collapsed) showTooltip(event, icon, label) }}
                                     onFocus={event => { if (collapsed) showTooltip(event, icon, label) }}
                                     onMouseLeave={hideTooltip} onBlur={() => setTooltip(null)} onClick={() => setTooltip(null)}>
-                                    {icon === 'widgets' ? <IconLayoutGrid className="menu-icon" size={24} stroke={1.7} /> : <SidebarIcon name={icon} />}
+                                    <SidebarIcon name={icon} />
                                     <span className="nav-label">{label}</span>
                                 </NavLink>
                             </li>

@@ -1617,7 +1617,7 @@ async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto, fe
     if not (lesson.logika_group_id or lesson.logika_schedule_id or lesson.source_sheet == "Logika Backoffice"):
         return
 
-    from logika_client import LogikaClient, absent_student_names, parse_attendance
+    from logika_client import LogikaClient, absent_student_names, parse_attendance, group_lesson_attendance
     from routers.logika import _extract_lesson_code
 
     review_lesson = lesson
@@ -1704,6 +1704,10 @@ async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto, fe
             records = parse_attendance(
                 await asyncio.to_thread(client.get_attendance, target["id"]), target["id"],
             )
+            journal_count = len(records)
+            records, excluded_count = group_lesson_attendance(records,
+                await asyncio.to_thread(client.get_group_students, lesson.logika_group_id),
+                lesson.logika_group_id, schedule['lesson_date'])
         except ValueError as error:
             save_tokens()
             fail(f"Не вдалося перевірити відвідування в Logika: {error}", review=True)
@@ -1711,9 +1715,12 @@ async def _sync_logika_lesson_before_report(db, lesson, schedule, *, is_auto, fe
             save_tokens()
             fail(f"Не вдалося перевірити відвідування в Logika: {error}", 502)
         save_tokens()
-        expected = _parse_int(target.get("studentsAmount"))
-        if not records or (expected and expected != len(records)):
-            fail("У Logika немає повного журналу учнів цього заняття", review=True)
+        log_event("INFO", "Logika", f"Заняття #{target['id']} за {schedule['lesson_date']:%d.%m.%Y}: "
+                  f"записів у журналі {journal_count}, учнів для звіту {len(records)}, "
+                  f"виключено відрахованих, переведених та інших неактивних учнів {excluded_count}; "
+                  f"кількість у розкладі {target.get('studentsAmount', '—')}")
+        if not records:
+            fail("У Logika немає активних учнів із відмітками для цього заняття", review=True)
         # Count unique students in this dated lesson, never absences across dates.
         prefix = "Автозвіт" if is_auto else "Звіт"
         if len(records) <= 2:

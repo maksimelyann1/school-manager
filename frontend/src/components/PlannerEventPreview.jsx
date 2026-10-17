@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DateTime } from 'luxon'
-import { taskCategories } from './PlannerEditor'
 import { buildApiUrl } from '../api/client'
 import SidebarIcon from './SidebarIcon'
 import PlannerDescriptionView from './PlannerDescriptionView'
@@ -69,7 +68,7 @@ export default function PlannerEventPreview({ item, anchor, color, busy, onEdit,
             <div className="planner-event-preview__content">
                 <h3>{item.title}</h3>
                 <p className="planner-event-preview__schedule">{formatSchedule(item)}</p>
-                <p className="planner-event-preview__meta">{taskCategories[item.category] || 'Подія'} · {item.source === 'google' ? 'Google Календар' : 'У застосунку'}</p>
+                <p className="planner-event-preview__meta">{item.kind === 'task' ? 'Задача' : 'Подія'} · {item.source === 'google' ? 'Google Календар' : 'У застосунку'}</p>
                 {!!item.recurrence?.length && <p className="planner-event-preview__meta">↻ Повторювана подія · зміни для всієї серії</p>}
                 {item.sync_error && <p className="planner-error" role="status">{item.sync_error}</p>}
                 {item.location && <p className="planner-event-preview__meta">{item.location}</p>}

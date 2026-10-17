@@ -15,6 +15,8 @@ import httpx
 from fastapi import HTTPException
 
 from database import db_dir
+from services.planner.google_errors import safe_google_error
+from services.planner.oauth_page import oauth_result_page
 
 SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.app.created',
           'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
@@ -25,6 +27,7 @@ TOKEN_URL = 'https://oauth2.googleapis.com/token'
 SERVICE = 'SchoolManager.Planner.Google'
 TOKEN_FIELDS = ('access_token', 'refresh_token', 'expires_at', 'expires_in', 'scope')
 refresh_lock = asyncio.Lock()
+OAUTH_WAIT_SECONDS = 180
 
 
 def config_path():
@@ -102,6 +105,8 @@ class DesktopOAuth:
         self.task = None
         self.state = 'idle'
         self.error = None
+        self.notice = None
+        self.stage = None
         self.server = None
         self.start_lock = asyncio.Lock()
 
@@ -116,6 +121,7 @@ class DesktopOAuth:
         await asyncio.to_thread(vault)  # Fail before asking for consent if secure storage is unavailable.
         loop = asyncio.get_running_loop()
         result = loop.create_future()
+        completed = loop.create_future()
         state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
 
@@ -130,9 +136,18 @@ class DesktopOAuth:
                     if params.get('code'):
                         result.set_result(params['code'][0])
                     else:
-                        result.set_exception(HTTPException(400, 'Вхід у Google скасовано'))
-                body = ('Вхід завершено. Поверніться до School Manager.' if valid else 'Некоректний запит.').encode('utf-8')
-                writer.write(f'HTTP/1.1 {200 if valid else 400} OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {len(body)}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n'.encode() + body)
+                        cancelled = params.get('error', [''])[0] == 'access_denied'
+                        result.set_exception(HTTPException(400, 'Вхід у Google скасовано' if cancelled
+                                                          else 'Google не повернув код входу. Повторіть підключення'))
+                page_state = 'invalid'
+                if valid:
+                    try:
+                        await asyncio.wait_for(asyncio.shield(completed), 60)
+                        page_state = 'connected' if self.state == 'connected' else 'error' if self.state == 'error' else 'cancelled'
+                    except asyncio.TimeoutError:
+                        page_state = 'pending'
+                body = oauth_result_page(page_state)
+                writer.write(f'HTTP/1.1 {200 if valid else 400} OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {len(body)}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src \'none\'; style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'; frame-ancestors \'none\'\r\nConnection: close\r\n\r\n'.encode() + body)
                 await writer.drain()
             except (asyncio.TimeoutError, ConnectionError, ValueError):
                 pass
@@ -148,11 +163,20 @@ class DesktopOAuth:
         url = AUTH_URL + '?' + urlencode({**{'client_id': config['client_id']}, 'redirect_uri': redirect,
             'response_type': 'code', 'scope': ' '.join(SCOPES), 'state': state, 'code_challenge': challenge,
             'code_challenge_method': 'S256', 'access_type': 'offline', 'prompt': 'consent select_account'})
-        self.state, self.error = 'waiting', None
+        self.state, self.error, self.notice = 'waiting', None, None
+        self.stage = 'очікування підтвердження в браузері'
 
         async def finish():
             try:
-                code = await asyncio.wait_for(result, timeout=180)
+                try:
+                    code = await asyncio.wait_for(result, timeout=OAUTH_WAIT_SECONDS)
+                except asyncio.TimeoutError:
+                    from logger import log_event
+                    self.state, self.error = 'idle', None
+                    self.notice = 'Вхід у Google не завершено в браузері. Можна повторити підключення'
+                    log_event('INFO', 'Planner', 'Вхід у Google не завершено за 3 хвилини. Збережений доступ не змінено')
+                    return
+                self.stage = 'обмін коду входу Google'
                 async with httpx.AsyncClient(timeout=20) as client:
                     response = await client.post(TOKEN_URL, data={**config, 'code': code, 'code_verifier': verifier,
                         'redirect_uri': redirect, 'grant_type': 'authorization_code'})
@@ -160,6 +184,7 @@ class DesktopOAuth:
                     token = response.json()
                     if not set(SCOPES[2:]).issubset(set(token.get('scope', '').split())):
                         raise HTTPException(403, 'Надайте дозволи календаря для синхронізації')
+                    self.stage = 'перевірка Google-акаунта'
                     profile = await client.get('https://openidconnect.googleapis.com/v1/userinfo', headers={'Authorization': f'Bearer {token["access_token"]}'})
                     profile.raise_for_status()
                     person = profile.json()
@@ -167,18 +192,28 @@ class DesktopOAuth:
                     raise HTTPException(401, 'Не отримано дозвіл на фонову синхронізацію. Повторіть вхід')
                 token = {key: token[key] for key in ('access_token', 'refresh_token', 'expires_in', 'scope') if key in token}
                 token['expires_at'] = time.time() + token.get('expires_in', 3600)
+                self.stage = 'збереження доступу Google'
                 await asyncio.to_thread(save_token, person['sub'], token)
+                self.stage = 'підключення акаунта в застосунку'
                 await on_success(person)
-                self.state = 'connected'
+                self.state, self.error, self.notice = 'connected', None, None
+                self.stage = None
             except asyncio.CancelledError:
-                self.state = 'idle'
+                self.state, self.error, self.notice = 'idle', None, None
                 raise
             except Exception as error:
                 from logger import log_event
-                self.state = 'error'
-                self.error = error.detail if isinstance(error, HTTPException) else 'Не вдалося підключити Google. Перевірте мережу й повторіть вхід'
-                log_event('ERROR', 'Planner', self.error)
+                if isinstance(error, HTTPException) and error.status_code == 400 and error.detail == 'Вхід у Google скасовано':
+                    self.state, self.error = 'idle', None
+                    self.notice = 'Вхід у Google скасовано'
+                    log_event('INFO', 'Planner', 'Вхід у Google скасовано. Збережений доступ не змінено')
+                else:
+                    self.state = 'error'
+                    self.error = error.detail if isinstance(error, HTTPException) else 'Не вдалося підключити Google. Повторіть вхід'
+                    log_event('ERROR', 'Planner', f'{self.error}. Етап: {self.stage}; {safe_google_error(error)}')
             finally:
+                if not completed.done():
+                    completed.set_result(None)
                 self.server.close()
                 await self.server.wait_closed()
 
@@ -195,6 +230,7 @@ class DesktopOAuth:
                 await self.task
             except asyncio.CancelledError:
                 pass
+        self.state, self.error, self.notice, self.stage = 'idle', None, None, None
 
 
 oauth = DesktopOAuth()

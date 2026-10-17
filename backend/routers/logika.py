@@ -408,14 +408,22 @@ def fetch_absents_for_lesson(lesson_id: int, db: Session = Depends(get_db)):
     lesson = db.query(ParentReportLesson).filter(ParentReportLesson.id == lesson_id).first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Урок не знайдено")
-    if not lesson.logika_schedule_id:
+    if not lesson.logika_schedule_id or not lesson.logika_group_id:
         raise HTTPException(status_code=400, detail="Урок не прив'язаний до розкладу Logika")
 
     settings = get_or_create_logika_settings(db)
     client = get_authenticated_client(settings, db)
 
     try:
-        absents = client.get_absent_students(lesson.logika_schedule_id)
+        from routers.parents_report import _parse_iso_datetime
+        targets = [item for item in client.get_group_schedule(lesson.logika_group_id)
+                   if str(item.get('id')) == str(lesson.logika_schedule_id)
+                   and str((item.get('group') or {}).get('key')) == str(lesson.logika_group_id)]
+        start = _parse_iso_datetime(targets[0].get('start')) if len(targets) == 1 else None
+        if not start:
+            raise ValueError('Не вдалося визначити дату заняття для перевірки складу групи')
+        absents = client.get_absent_students(lesson.logika_schedule_id,
+            group_id=lesson.logika_group_id, lesson_date=start.date())
         absents_str = ", ".join(absents)
         lesson.absents = absents_str
         db.commit()

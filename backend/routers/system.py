@@ -502,6 +502,30 @@ def _build_diagnostic_log() -> str:
     finally:
         db.close()
 
+    _append_section(lines, "Google Calendar State")
+    db = SessionLocal()
+    try:
+        from task_models import PlannerCalendar, PlannerConnection, PlannerSyncJob
+        from services.planner.google_auth import oauth
+        connection = db.query(PlannerConnection).filter(PlannerConnection.state != 'disconnected').first()
+        lines.append(f"oauth_state: {oauth.state}")
+        lines.append(f"oauth_stage: {getattr(oauth, 'stage', None)}")
+        lines.append(f"oauth_notice: {getattr(oauth, 'notice', None)}")
+        lines.append(f"oauth_error: {_redact_sensitive(oauth.error or '')}")
+        lines.append(f"connection_state: {connection.state if connection else 'disconnected'}")
+        if connection:
+            lines.append(f"last_sync_at: {connection.last_sync_at}")
+            lines.append(f"next_sync_at: {connection.next_sync_at}")
+            lines.append(f"sync_attempts: {connection.sync_attempts}")
+            lines.append(f"sync_error: {_redact_sensitive(connection.last_error or '')}")
+            calendars = db.query(PlannerCalendar).filter_by(connection_id=connection.id).all()
+            lines.append(f"calendars: {len(calendars)}; managed: {sum(bool(c.managed) for c in calendars)}")
+        lines.append(f"pending_sync_jobs: {db.query(PlannerSyncJob).count()}")
+    except Exception as error:
+        lines.append(f"Google summary unavailable: {type(error).__name__}")
+    finally:
+        db.close()
+
     _append_section(lines, "Application Event Log (latest 1000)")
     db = SessionLocal()
     try:

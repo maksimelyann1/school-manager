@@ -2,12 +2,10 @@ import { useLayoutEffect, useRef, useState, useEffect } from 'react'
 import './PlannerEventMenu.css'
 
 const colors = [
-    ['Малиновий', '#C75072'], ['Рожевий', '#DF6A80'], ['Кораловий', '#E47A77'], ['Теракотовий', '#DD6D50'],
-    ['Помаранчевий', '#E9843B'], ['Бурштиновий', '#D99732'], ['Жовтий', '#D7B34B'], ['Пісочний', '#D1C063'],
-    ['Лаймовий', '#A6C755'], ['Зелений', '#79B45D'], ['Смарагдовий', '#3DA66E'], ['М’ятний', '#56B690'],
-    ['Бірюзовий', '#3FA7A4'], ['Блакитний', '#4D9ED3'], ['Синій', '#5A83D6'], ['Індиго', '#7172C9'],
-    ['Лавандовий', '#9E8BCB'], ['Бузковий', '#A77ABE'], ['Пурпуровий', '#A467C0'], ['Сливовий', '#9B688B'],
-    ['Сірий', '#6B7280'], ['Тауповий', '#8A8179'], ['Графітовий', '#566070'], ['Темно-зелений', '#417A62'],
+    ['Лавандовий', '#a4bdfc'], ['Шавлія', '#7ae7bf'], ['Виноградний', '#dbadff'],
+    ['Фламінго', '#ff887c'], ['Банановий', '#fbd75b'], ['Мандариновий', '#ffb878'],
+    ['Бірюзовий', '#46d6db'], ['Графітовий', '#e1e1e1'], ['Чорничний', '#5484ed'],
+    ['Базиліковий', '#51b749'], ['Томатний', '#dc2127'],
 ]
 
 export default function PlannerEventMenu({ item, x, y, busy, onColor, onDelete, onClose }) {
@@ -47,9 +45,9 @@ export default function PlannerEventMenu({ item, x, y, busy, onColor, onDelete, 
         <div className="planner-event-menu__section">
             <span className="planner-event-menu__label">Колір події</span>
             <div className="planner-event-menu__colors" role="group" aria-label="Оберіть колір">
-                {colors.map(([name, color]) => <button key={color} type="button" className={`planner-event-menu__swatch ${item.color?.toLowerCase() === color.toLowerCase() ? 'is-selected' : ''}`} aria-label={name} aria-pressed={item.color?.toLowerCase() === color.toLowerCase()} title={name} style={{ backgroundColor: color }} disabled={busy} onClick={() => onColor(color)}>{item.color?.toLowerCase() === color.toLowerCase() ? '✓' : ''}</button>)}
+                {colors.map(([name, color]) => <button key={color} type="button" className={`planner-event-menu__swatch ${item.color?.toLowerCase() === color.toLowerCase() ? 'is-selected' : ''}`} aria-label={name} aria-pressed={item.color?.toLowerCase() === color.toLowerCase()} title={name} style={{ backgroundColor: color }} disabled={busy || item.read_only} onClick={() => onColor(color)}>{item.color?.toLowerCase() === color.toLowerCase() ? '✓' : ''}</button>)}
             </div>
-            <button type="button" className="planner-event-menu__default" role="menuitem" disabled={busy} onClick={() => onColor(null)}><span className="planner-event-menu__default-dot">{!item.color ? '✓' : ''}</span>За замовчуванням</button>
+            <button type="button" className="planner-event-menu__default" role="menuitem" disabled={busy || item.read_only} onClick={() => onColor(null)}><span className="planner-event-menu__default-dot">{!item.color ? '✓' : ''}</span>За замовчуванням</button>
         </div>
     </div>
 }

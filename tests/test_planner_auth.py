@@ -20,7 +20,7 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         self.stack.enter_context(patch.object(auth, 'vault', return_value=Mock()))
         self.open = self.stack.enter_context(patch.object(auth.webbrowser, 'open', return_value=True))
         self.save = self.stack.enter_context(patch.object(auth, 'save_token'))
-        self.stack.enter_context(patch('logger.log_event'))
+        self.log = self.stack.enter_context(patch('logger.log_event'))
         self.oauth = auth.DesktopOAuth()
         self.success = AsyncMock()
 
@@ -57,6 +57,84 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
             await self.oauth.start(self.success)
         self.assertEqual(self.open.call_count, 1)
 
+    async def test_closed_browser_is_unfinished_login_not_network_failure(self):
+        with patch.object(auth, 'OAUTH_WAIT_SECONDS', .03):
+            await self.oauth.start(self.success)
+            await asyncio.wait_for(self.oauth.task, 2)
+        self.assertEqual(self.oauth.state, 'idle')
+        self.assertIsNone(self.oauth.error)
+        self.assertIn('не завершено', self.oauth.notice)
+        self.assertFalse(self.oauth.server.is_serving())
+        self.save.assert_not_called()
+        self.success.assert_not_awaited()
+        self.assertEqual(self.log.call_args.args[0], 'INFO')
+        await self.oauth.start(self.success)
+        self.assertEqual(self.oauth.state, 'waiting')
+        self.assertIsNone(self.oauth.notice)
+
+    async def test_denied_consent_is_cancellation_and_keeps_saved_account(self):
+        await self.oauth.start(self.success)
+        params = parse_qs(urlsplit(self.open.call_args.args[0]).query)
+        response = await self.callback('/callback?state=' + params['state'][0] + '&error=access_denied')
+        self.assertIn('не завершено'.encode(), response)
+        await asyncio.wait_for(self.oauth.task, 2)
+        self.assertEqual(self.oauth.state, 'idle')
+        self.assertIsNone(self.oauth.error)
+        self.assertIn('скасовано', self.oauth.notice)
+        self.save.assert_not_called()
+        self.success.assert_not_awaited()
+        self.assertEqual(self.log.call_args.args[0], 'INFO')
+
+    async def test_real_google_timeout_is_logged_as_error_without_secrets(self):
+        async def failing(request):
+            raise httpx.ReadTimeout('PRIVATE fake-code fake-access', request=request)
+        real_client = httpx.AsyncClient
+        with patch.object(auth.httpx, 'AsyncClient', side_effect=lambda **kw: real_client(transport=httpx.MockTransport(failing), **kw)):
+            await self.oauth.start(self.success)
+            params = parse_qs(urlsplit(self.open.call_args.args[0]).query)
+            response = await self.callback('/callback?state=' + params['state'][0] + '&code=fake-code')
+            await asyncio.wait_for(self.oauth.task, 2)
+        self.assertEqual(self.oauth.state, 'error')
+        self.assertIn('Не вдалося завершити вхід'.encode(), response)
+        self.assertNotIn('<h1 id="result-title">Вхід завершено'.encode(), response)
+        self.assertIsNone(self.oauth.notice)
+        self.assertEqual(self.log.call_args.args[0], 'ERROR')
+        logged = self.log.call_args.args[2]
+        self.assertIn('ReadTimeout', logged)
+        self.assertIn('обмін коду', logged)
+        for secret in ('PRIVATE', 'fake-code', 'fake-access'):
+            self.assertNotIn(secret, logged)
+        self.save.assert_not_called()
+
+    async def test_google_rejection_logs_http_status_without_response_body(self):
+        real_client = httpx.AsyncClient
+        transport = httpx.MockTransport(lambda request: httpx.Response(400, json={'error': 'invalid_grant', 'PRIVATE': 'fake-access'}))
+        with patch.object(auth.httpx, 'AsyncClient', side_effect=lambda **kw: real_client(transport=transport, **kw)):
+            await self.oauth.start(self.success)
+            params = parse_qs(urlsplit(self.open.call_args.args[0]).query)
+            await self.callback('/callback?state=' + params['state'][0] + '&code=fake-code')
+            await asyncio.wait_for(self.oauth.task, 2)
+        self.assertEqual(self.oauth.state, 'error')
+        self.assertIn('HTTP 400', self.log.call_args.args[2])
+        self.assertNotIn('PRIVATE', self.log.call_args.args[2])
+        self.assertNotIn('fake-access', self.log.call_args.args[2])
+
+    async def test_stop_clears_previous_error_without_touching_tokens(self):
+        self.oauth.state, self.oauth.error = 'error', 'Попередня помилка'
+        await self.oauth.stop()
+        self.assertEqual(self.oauth.state, 'idle')
+        self.assertIsNone(self.oauth.error)
+        self.save.assert_not_called()
+
+    async def test_google_callback_error_is_not_mislabelled_as_user_cancellation(self):
+        await self.oauth.start(self.success)
+        params = parse_qs(urlsplit(self.open.call_args.args[0]).query)
+        await self.callback('/callback?state=' + params['state'][0] + '&error=invalid_scope')
+        await asyncio.wait_for(self.oauth.task, 2)
+        self.assertEqual(self.oauth.state, 'error')
+        self.assertIsNone(self.oauth.notice)
+        self.assertEqual(self.log.call_args.args[0], 'ERROR')
+
     async def test_success_token_only_in_vault(self):
         transport = httpx.MockTransport(lambda request: httpx.Response(200, json=(
             {'access_token': 'fake-access', 'refresh_token': 'fake-refresh', 'scope': ' '.join(auth.SCOPES), 'expires_in': 3600}
@@ -65,13 +143,21 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(auth.httpx, 'AsyncClient', side_effect=lambda **kw: real_client(transport=transport, **kw)):
             await self.oauth.start(self.success)
             params = parse_qs(urlsplit(self.open.call_args.args[0]).query)
-            await self.callback('/callback?state=' + params['state'][0] + '&code=fake-code')
+            response = await self.callback('/callback?state=' + params['state'][0] + '&code=fake-code')
             await asyncio.wait_for(self.oauth.task, 5)
         self.assertEqual(self.oauth.state, 'connected')
         self.success.assert_awaited_once_with({'sub': 'stable-id', 'email': 'fake@example.test'})
         self.assertEqual(self.save.call_args.args[0], 'stable-id')
         self.assertIn(auth.EVENTS_SCOPE, self.save.call_args.args[1]['scope'])
         self.assertNotIn('fake-access', repr(vars(self.oauth)))
+        headers, body = response.split(b'\r\n\r\n', 1)
+        self.assertIn(b'Content-Type: text/html; charset=utf-8', headers)
+        self.assertIn(b'Content-Security-Policy:', headers)
+        self.assertIn('Вхід завершено'.encode(), body)
+        self.assertIn('Можете закрити цю вкладку та повернутися до School Manager.'.encode(), body)
+        self.assertIn(f'Content-Length: {len(body)}'.encode(), headers)
+        for secret in (b'fake-access', b'fake-refresh', b'fake-code', params['state'][0].encode()):
+            self.assertNotIn(secret, body)
 
     async def test_refresh_and_revoked_token(self):
         token = {'access_token': 'old', 'refresh_token': 'refresh', 'expires_at': 0}

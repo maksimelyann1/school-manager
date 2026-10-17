@@ -18,7 +18,7 @@
     transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 .refresh-button:enabled:is(:hover, :focus-visible),
-.refresh-button[aria-busy="true"] {
+.refresh-button[aria-busy="true"]:is(:hover, :focus-visible) {
     background: var(--gradient-primary);
     color: white;
     border-color: transparent;
@@ -30,6 +30,6 @@
 .refresh-button .menu-icon { width: 16px; height: 16px; flex-shrink: 0; }
 @media (prefers-reduced-motion: no-preference) {
     .refresh-button:enabled:is(:hover, :focus-visible) .menu-icon { animation: refresh-button-turn 650ms ease-in-out; }
-    .refresh-button[aria-busy="true"] .menu-icon { animation: refresh-button-turn 850ms linear infinite; }
+    .refresh-button[aria-busy="true"] .menu-icon { animation: refresh-button-turn 850ms linear 200ms infinite; }
 }
 @keyframes refresh-button-turn { to { transform: rotate(360deg); } }

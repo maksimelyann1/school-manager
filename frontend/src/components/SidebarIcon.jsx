@@ -44,6 +44,12 @@ const drawings = {
         <path d="M8 3v4m8-4v4M3 10h18" />
         <path className="menu-icon-check" d="m8.4 15.2 2.3 2.3 4.9-4.7" />
     </>,
+    widgets: <g className="menu-icon-tiles">
+        {[[4, 4], [14, 4], [4, 14], [14, 14]].map(([x, y]) => <g key={`${x}-${y}`}>
+            <rect className="menu-icon-surface" x={x} y={y} width="6" height="6" rx="1" />
+            <rect x={x} y={y} width="6" height="6" rx="1" />
+        </g>)}
+    </g>,
     message: <>
         <path className="menu-icon-surface" d="M7 4h10a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H9l-4.5 2.8A.9.9 0 0 1 3 20V8a4 4 0 0 1 4-4Z" />
         <path d="M7 4h10a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H9l-4.5 2.8A.9.9 0 0 1 3 20V8a4 4 0 0 1 4-4Z" />

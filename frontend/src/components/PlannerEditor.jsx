@@ -4,9 +4,9 @@ import { api, buildApiUrl } from '../api/client'
 import { AppSelect } from './FormControls'
 import PlannerDescriptionEditor from './PlannerDescriptionEditor'
 import PlannerRecurrence from './PlannerRecurrence'
+import { plannerEditorValues, plannerGoogleDefaults } from '../utils/plannerValues'
 
-export const taskCategories = { lesson: 'Урок', substitution: 'Заміна', preparation: 'Підготовка', event: 'Захід', other: 'Інше' }
-export const syncLabels = { local: 'На цьому комп’ютері', synced: 'Синхронізовано', pending: 'Очікує синхронізації', conflict: 'Є конфлікт змін', error: 'Помилка синхронізації' }
+export const syncLabels = { local: 'На цьому комп’ютері', synced: 'Синхронізовано', pending: 'Очікує синхронізації', error: 'Помилка синхронізації' }
 export const reminderLabels = { pending: 'Очікує', scheduled: 'Заплановано', sent: 'Відправлено', cancelled: 'Скасовано', cancel_pending: 'Скасування', error: 'Помилка', uncertain: 'Потрібна перевірка', missed: 'Пропущено', elapsed: 'Час нагадування минув' }
 
 export default function PlannerEditor({ item, anchor, onClose, onChanged }) {
@@ -15,17 +15,18 @@ export default function PlannerEditor({ item, anchor, onClose, onChanged }) {
     const drag = useRef(null)
     const movedByUser = useRef(false)
     const positionRef = useRef(null)
+    const syncPreference = useRef(item.google_enabled)
     const [expanded, setExpanded] = useState(false)
     const [multipleDays, setMultipleDays] = useState(!!item.end_date && item.end_date !== item.date)
     const [position, setPosition] = useState(null)
     const [current, setCurrent] = useState(item)
-    const [form, setForm] = useState({ title: '', description: '', location: '', recurrence: [], attendees: [], meet_requested: false, kind: 'task', category: 'preparation', status: 'open', date: '', time: '', end_date: '', end_time: '', timezone: 'Europe/Kyiv', google_enabled: false, ...item })
+    const [form, setForm] = useState({ title: '', description: '', location: '', recurrence: [], attendees: [], meet_requested: false, kind: 'task', date: '', time: '', end_date: '', end_time: '', timezone: 'Europe/Kyiv', fold: 0, google_enabled: false, ...item })
     const [guestInput, setGuestInput] = useState('')
     const [google, setGoogle] = useState(null)
+    const [googleLoading, setGoogleLoading] = useState(true)
     const [requestId] = useState(() => crypto.randomUUID())
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
-    const [groups, setGroups] = useState([])
     const [relations, setRelations] = useState(null)
     const [attachments, setAttachments] = useState(item.attachments || [])
     const [pendingFiles, setPendingFiles] = useState([])
@@ -69,14 +70,18 @@ export default function PlannerEditor({ item, anchor, onClose, onChanged }) {
     }, [current.id, current.revision])
     useEffect(() => {
         const controller = new AbortController()
-        api.get('/groups', { signal: controller.signal }).then(data => setGroups(Array.isArray(data) ? data : data.groups || [])).catch(() => {})
-        api.get('/planner/google/status', { signal: controller.signal }).then(setGoogle).catch(() => {})
+        api.get('/planner/google/status', { signal: controller.signal }).then(data => {
+            setGoogle(data)
+            setForm(previous => plannerGoogleDefaults(previous, item, data, syncPreference.current))
+        }).catch(() => {}).finally(() => { if (!controller.signal.aborted) setGoogleLoading(false) })
         return () => controller.abort()
     }, [])
     const change = (name, value) => {
+        if (name === 'google_enabled') syncPreference.current = value
         if (name === 'kind' && value === 'task') setGuestInput('')
         setForm(previous => {
         const next = { ...previous, [name]: value }
+        if (['date', 'time', 'end_date', 'end_time'].includes(name) && previous[name] !== value) next.fold = 0
         if (name === 'date' && previous.date && value && previous.end_date) {
             const shift = DateTime.fromISO(value).diff(DateTime.fromISO(previous.date), 'days').days
             next.end_date = DateTime.fromISO(previous.end_date).plus({ days: shift }).toISODate()
@@ -91,7 +96,7 @@ export default function PlannerEditor({ item, anchor, onClose, onChanged }) {
         if (name === 'kind' && value === 'event' && previous.status === 'done') next.status = 'open'
         if (name === 'kind' && value === 'task') Object.assign(next, { recurrence: [], attendees: [], meet_requested: false })
         if (name === 'meet_requested' && value) next.google_enabled = true
-        return next
+        return plannerGoogleDefaults(next, current, google, syncPreference.current)
         })
     }
     const guestValues = () => [...new Map([...(form.attendees || []), ...guestInput.split(/[,;\s]+/).filter(Boolean).map(email => ({ email: email.toLowerCase() }))].map(guest => [guest.email.toLowerCase(), guest])).values()]
@@ -148,12 +153,9 @@ export default function PlannerEditor({ item, anchor, onClose, onChanged }) {
     }
     const save = (event) => {
         event.preventDefault()
-        const keys = ['title', 'description', 'location', 'recurrence', 'attendees', 'meet_requested', 'kind', 'category', 'status', 'date', 'time', 'end_date', 'end_time', 'timezone', 'fold', 'parent_id', 'group_id', 'google_enabled', 'google_calendar_id']
-        const values = Object.fromEntries(keys.filter(key => form[key] !== undefined).map(key => [key, form[key] === '' && !['title', 'description', 'location'].includes(key) ? null : form[key]]))
-        if (form.kind === 'event') { values.attendees = guestValues(); if (guestInput.trim()) values.google_enabled = true }
-        if (!values.date) Object.assign(values, { time: null, end_date: null, end_time: null })
-        if (!values.time) values.end_time = null
-        if (values.kind === 'event' && values.status === 'done') values.status = 'open'
+        if (busy || (!current.id && form.date && googleLoading)) return
+        const values = plannerEditorValues(form, current, guestValues())
+        if (form.kind === 'event' && guestInput.trim()) values.google_enabled = true
         run(async () => {
             const saved = current.id ? await api.patch(`/tasks/${current.id}`, { ...values, revision: current.revision }) : await api.post('/tasks', { ...values, request_id: requestId })
             setCurrent(saved)
@@ -215,21 +217,16 @@ export default function PlannerEditor({ item, anchor, onClose, onChanged }) {
                 </div>}
             </div>
             <div className="planner-editor-calendar"><label className="planner-check"><input type="checkbox" disabled={!form.date || !!readOnly || busy || current.source === 'google' || !!form.attendees?.length || !!guestInput.trim() || form.meet_requested} checked={!!form.google_enabled || !!guestInput.trim()} onChange={event => change('google_enabled', event.target.checked)} />{form.google_enabled || guestInput.trim() ? 'Google Календар' : 'На цьому комп’ютері'}</label><small>{form.google_enabled || guestInput.trim() ? google?.connection ? google.connection.email : 'Підключіть Google у задачнику' : 'Увімкніть, щоб синхронізувати з Google'}</small>{form.google_enabled && <div className="planner-select-field"><span>Календар</span><AppSelect {...selectProps} disabled={!!readOnly || busy || current.source === 'google' || current.sync_state === 'synced'} ariaLabel="Календар Google" value={form.google_calendar_id || google?.calendars?.find(calendar => calendar.managed)?.id || ''} onChange={value => change('google_calendar_id', value ? Number(value) : null)} options={(google?.calendars || []).filter(calendar => calendar.visible && calendar.writable).map(calendar => ({ value: calendar.id, label: calendar.name }))} /></div>}{(form.attendees?.length > 0 || guestInput.trim()) && <small>Після синхронізації Google надішле гостям запрошення та зміни події.</small>}{current.id && form.recurrence?.length > 0 && <small>Редагування та видалення застосовуються до всієї серії.</small>}</div>
-            {expanded && <fieldset className="planner-extra-fields" disabled={!!readOnly || busy}>
-                <div className="planner-fields"><div className="planner-select-field"><span>Категорія</span><AppSelect {...selectProps} ariaLabel="Категорія" value={form.category} onChange={value => change('category', value)} options={Object.entries(taskCategories).map(([value, label]) => ({ value, label }))} /></div><div className="planner-select-field"><span>Група</span><AppSelect {...selectProps} ariaLabel="Група" value={form.group_id || ''} onChange={value => change('group_id', value ? Number(value) : null)} options={[{ value: '', label: 'Без групи' }, ...groups.map(group => ({ value: group.id, label: group.name }))]} /></div></div>
-                <div className="planner-select-field"><span>Стан</span><AppSelect {...selectProps} ariaLabel="Стан" value={form.status} onChange={value => change('status', value)} options={[{ value: 'open', label: form.kind === 'event' ? 'Заплановано' : 'До виконання' }, ...(form.kind === 'task' ? [{ value: 'done', label: 'Виконано' }] : []), { value: 'cancelled', label: 'Скасовано' }]} /></div>
-                <details><summary>Додатково</summary><div className="planner-fields"><label>Часовий пояс<input required value={form.timezone} onChange={e => change('timezone', e.target.value)} /></label><div className="planner-select-field"><span>При переведенні годинника</span><AppSelect {...selectProps} ariaLabel="При переведенні годинника" value={form.fold ?? ''} onChange={value => change('fold', value === '' ? null : Number(value))} options={[{ value: '', label: 'Уточнити, якщо час повторюється' }, { value: 0, label: 'Перше входження' }, { value: 1, label: 'Друге входження' }]} /></div></div></details>
-            </fieldset>}
             {expanded && current.id && <section className="planner-reminders"><h3>Нагадування</h3><p>Системні сповіщення працюють, поки застосунок запущений.</p>
                 {(current.reminders || []).filter(r => r.state !== 'cancelled').map(r => <div className="planner-reminder" key={r.id}><span>{r.channel === 'system' ? 'На комп’ютері' : 'Telegram · Збережене'} · {DateTime.fromISO(r.remind_at).setZone(form.timezone).toFormat('dd.LL HH:mm')}<small>{reminderLabels[r.state] || r.state}{r.error ? ` · ${r.error}` : ''}</small></span>{!['sent', 'missed'].includes(r.state) && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => run(() => api.delete(`/tasks/${current.id}/reminders/${r.id}`))}>Скасувати</button>}</div>)}
                 {!current.deleted_at && current.status === 'open' && <><div className="planner-fields"><div className="planner-select-field"><span>Куди</span><AppSelect disabled={busy} portalContainerRef={dialog} menuClassName="planner-editor-select-menu" ariaLabel="Куди надіслати нагадування" value={reminder.channel} onChange={value => setReminder(previous => ({ ...previous, channel: value }))} options={[{ value: 'system', label: 'На комп’ютері' }, { value: 'telegram', label: 'Telegram · Збережене' }]} /></div><label>Дата<input type="date" value={reminder.date} onChange={e => setReminder({ ...reminder, date: e.target.value })} /></label><label>Час<input type="time" value={reminder.time} onChange={e => setReminder({ ...reminder, time: e.target.value })} /></label></div><button className="btn btn-secondary" type="button" disabled={busy || !reminder.date || !reminder.time} onClick={() => run(() => api.post(`/tasks/${current.id}/reminders`, { ...reminder, fold: form.fold, revision: current.revision }))}>Додати нагадування</button></>}
             </section>}
             </div>
             <footer>
-                <button className="planner-dialog__more" type="button" aria-expanded={expanded} disabled={busy} onClick={() => setExpanded(value => !value)}>{expanded ? 'Менше параметрів' : 'Інші параметри'}</button>
+                {current.id && <button className="planner-dialog__more" type="button" aria-expanded={expanded} disabled={busy} onClick={() => setExpanded(value => !value)}>{expanded ? 'Менше параметрів' : 'Інші параметри'}</button>}
                 {expanded && current.id && !readOnly && <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => run(() => api.delete(`/tasks/${current.id}?revision=${current.revision}`), true)}>До кошика</button>}
                 {expanded && current.deleted_at && !current.read_only && <button className="btn btn-primary" type="button" disabled={busy} onClick={() => run(() => api.post(`/tasks/${current.id}/restore`, { revision: current.revision }), true)}>Відновити</button>}
-                {!readOnly && <button className="btn btn-primary" disabled={busy} type="submit">{busy ? 'Збереження…' : 'Зберегти'}</button>}
+                {!readOnly && <button className="btn btn-primary" disabled={busy || (!current.id && !!form.date && googleLoading)} type="submit">{busy ? 'Збереження…' : 'Зберегти'}</button>}
             </footer>
         </form>
     </dialog>

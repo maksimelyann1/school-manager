@@ -6,10 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
-from task_models import PlannerCalendar, PlannerConnection, PlannerExternalLink, PlannerItem, PlannerSyncJob
+from task_models import PlannerCalendar, PlannerConnection, PlannerExternalLink, PlannerItem
 from services.planner.google_auth import oauth, client_config, config_path, access_token, delete_token, load_token, EVENTS_SCOPE
-from services.planner.google_sync import GoogleAPI, apply_remote, sync_google, sync_lock
-from services.planner.items import queue_sync
+from services.planner.google_sync import GoogleAPI, sync_google, sync_lock
 
 from services.planner.routes import PlannerRoute
 router = APIRouter(prefix='/planner/google', tags=['Google Календар'], route_class=PlannerRoute)
@@ -36,6 +35,10 @@ def active_connection(db):
     return connection
 
 
+def calendar_marker(account_id):
+    return 'School Manager planner ' + hashlib.sha256(account_id.encode()).hexdigest()[:24]
+
+
 @router.get('/status')
 def status(db: Session = Depends(get_db)):
     try:
@@ -46,6 +49,7 @@ def status(db: Session = Depends(get_db)):
     connection = db.query(PlannerConnection).filter(PlannerConnection.state.in_(['connected', 'reauth', 'error'])).first()
     calendars = db.query(PlannerCalendar).filter_by(connection_id=connection.id).all() if connection else []
     return {'configured': configured, 'config_path': str(config_path()), 'oauth_state': oauth.state, 'oauth_error': oauth.error,
+        'oauth_notice': getattr(oauth, 'notice', None),
         'connection': {'email': connection.email, 'state': connection.state, 'last_sync_at': connection.last_sync_at,
             'next_sync_at': connection.next_sync_at, 'sync_attempts': connection.sync_attempts,
             'error': connection.last_error, 'events_write': bool(connection.events_write)} if connection else None,
@@ -85,6 +89,7 @@ async def cancel_login():
 
 @router.post('/disconnect')
 async def disconnect(db: Session = Depends(get_db)):
+    await oauth.stop()
     async with sync_lock:
         connection = active_connection(db)
         await asyncio.to_thread(delete_token, connection.account_id)
@@ -101,6 +106,7 @@ async def discover_calendars(db: Session = Depends(get_db)):
         api = GoogleAPI(await access_token(connection.account_id))
         try:
             values, _ = await api.pages('/users/me/calendarList', {'maxResults': 250})
+            restored = []
             for value in values:
                 existing = db.query(PlannerCalendar).filter_by(connection_id=connection.id, remote_id=value['id']).first()
                 if existing:
@@ -109,8 +115,18 @@ async def discover_calendars(db: Session = Depends(get_db)):
                     existing = PlannerCalendar(connection_id=connection.id, remote_id=value['id'], name=value.get('summary', 'Календар'))
                     db.add(existing)
                     db.flush()
+                if (value.get('description') == calendar_marker(connection.account_id)
+                        and value.get('accessRole') == 'owner' and not existing.managed):
+                    existing.managed, existing.visible = 1, 1
+                    restored.append(existing.id)
+                    connection.next_sync_at = None
                 update_calendar_access(db, existing, value.get('accessRole', 'reader'), connection.events_write)
+                existing.color = value.get('backgroundColor')
             db.commit()
+            if restored:
+                from logger import log_event
+                for calendar_id in restored:
+                    log_event('INFO', 'Planner', f'Відновлено прив’язку наявного календаря School Manager, ID {calendar_id}')
         finally:
             await api.close()
     return status(db)
@@ -124,7 +140,7 @@ async def create_calendar(db: Session = Depends(get_db)):
         if existing:
             return status(db)
         api = GoogleAPI(await access_token(connection.account_id))
-        marker = 'School Manager planner ' + hashlib.sha256(connection.account_id.encode()).hexdigest()[:24]
+        marker = calendar_marker(connection.account_id)
         try:
             calendars, _ = await api.pages('/users/me/calendarList')
             value = next((c for c in calendars if c.get('description') == marker), None)
@@ -162,51 +178,6 @@ async def select_calendar(calendar_id: int, payload: CalendarChoice, db: Session
 
 
 @router.post('/sync')
-async def manual_sync():
+async def manual_sync(db: Session = Depends(get_db)):
+    await discover_calendars(db)
     return await sync_google(force=True)
-
-
-@router.get('/conflicts')
-def conflicts(db: Session = Depends(get_db)):
-    connection = active_connection(db)
-    values = db.query(PlannerExternalLink, PlannerItem).join(PlannerItem, PlannerItem.id == PlannerExternalLink.item_id).join(PlannerCalendar, PlannerCalendar.id == PlannerExternalLink.calendar_id).filter(PlannerCalendar.connection_id == connection.id, PlannerExternalLink.conflict.isnot(None)).all()
-    return [{'id': link.id, 'revision': item.revision, 'local_title': item.title, 'local_start': item.start_at or item.start_date,
-        'google_title': json.loads(link.conflict).get('summary', 'Видалено в Google'), 'google_start': json.loads(link.conflict).get('start', {})} for link, item in values]
-
-
-class Resolution(BaseModel):
-    revision: int
-    use_google: bool
-
-
-@router.post('/conflicts/{link_id}')
-async def resolve_conflict(link_id: int, payload: Resolution, db: Session = Depends(get_db)):
-    async with sync_lock:
-        connection = active_connection(db)
-        link = db.get(PlannerExternalLink, link_id)
-        calendar = db.get(PlannerCalendar, link.calendar_id) if link else None
-        if not link or not link.conflict or not calendar or calendar.connection_id != connection.id:
-            raise HTTPException(404, 'Конфлікт уже вирішено')
-        item = db.get(PlannerItem, link.item_id)
-        if item.revision != payload.revision:
-            raise HTTPException(409, 'Задача змінилася. Перегляньте конфлікт повторно')
-        remote = json.loads(link.conflict)
-        link.pending_snapshot, link.pending_revision = None, None
-        job = db.query(PlannerSyncJob).filter_by(item_id=item.id).first()
-        if payload.use_google:
-            if job:
-                db.delete(job)
-                db.flush()
-            link.conflict = None
-            apply_remote(db, calendar, remote, link)
-        else:
-            if remote.get('status') == 'cancelled':
-                db.delete(link)
-                db.flush()
-                item.revision += 1
-            else:
-                link.etag, link.conflict = remote.get('etag'), None
-            queue_sync(db, item)
-        connection.next_sync_at = None
-        db.commit()
-    return {'ok': True}

@@ -6,7 +6,7 @@ export default function RefreshButton({ onClick, busy = false, disabled = false 
         <button type="button" className="refresh-button" onClick={onClick}
             disabled={disabled || busy} aria-busy={busy}>
             <SidebarIcon name="refresh" />
-            <span>{busy ? 'Оновлення…' : 'Оновити'}</span>
+            <span>Оновити</span>
         </button>
     )
 }

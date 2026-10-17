@@ -55,6 +55,7 @@ if BACKEND_DIR not in sys.path:
 from startup_state import startup_state
 from notification_navigation import DEV_PROTOCOL, PROTOCOL, normalize_target, target_from_uri
 from desktop_activation import DesktopActivation, register_notification_protocol
+from desktop_window_size import WindowSizeStore, fit_window_size
 
 
 def _user_data_dir() -> str:
@@ -87,9 +88,9 @@ START_IN_TRAY_ARGS = {"--start-in-tray", "--tray", "--minimized"}
 SMOKE_TEST_ARGS = {"--smoke-test", "--ci-smoke-test"}
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 MAIN_WINDOW_WIDTH = 1536
-MAIN_WINDOW_HEIGHT = 1152
+MAIN_WINDOW_HEIGHT = 1210
 MIN_WINDOW_WIDTH = 1080
-MIN_WINDOW_HEIGHT = 750
+MIN_WINDOW_HEIGHT = 770
 TITLE_BAR_COLOR = "#1E293B"
 TITLE_BAR_BORDER_COLOR = "#334155"
 TITLE_BAR_TEXT_COLOR = "#F8FAFC"
@@ -105,6 +106,9 @@ _shutdown_requested = threading.Event()
 _tray_ready = threading.Event()
 _exit_worker_started = threading.Event()
 _main_window_maximized = False
+_main_window_minimized = False
+_main_window_size_ready = False
+_main_window_last_size = None
 _allow_window_close = False
 _backend_server = None
 _backend_loop: asyncio.AbstractEventLoop | None = None
@@ -123,6 +127,9 @@ def log_launcher(message: str):
             log_file.write(f"[{timestamp}] {message}\n")
     except Exception:
         pass
+
+
+_window_size_store = WindowSizeStore(os.path.join(APP_DATA_DIR, 'desktop', 'window-size.json'), log_launcher)
 
 
 def _safe_filename(filename: str | None, fallback: str = "file") -> str:
@@ -478,25 +485,46 @@ def _destroy_window_safely(window: webview.Window | None):
 
 
 def _get_main_window_size() -> tuple[int, int]:
-    if sys.platform != "win32":
-        return MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT
-
+    saved = _window_size_store.read()
+    screen = None
     try:
         screens = getattr(webview, "screens", [])
-        if not screens:
-            return MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT
-        screen_width = int(screens[0].width)
-        screen_height = int(screens[0].height)
-        available_width = max(1, screen_width - 80)
-        available_height = max(1, screen_height - 80)
-        compact = available_width < MAIN_WINDOW_WIDTH or available_height < MAIN_WINDOW_HEIGHT
-        width = min(MAIN_WINDOW_WIDTH, available_width)
-        height = min(MIN_WINDOW_HEIGHT if compact else MAIN_WINDOW_HEIGHT, available_height)
-        return width, height
+        if screens:
+            screen = int(screens[0].width), int(screens[0].height)
     except Exception as error:
         log_launcher(f"Main window size fallback: {error}")
+    return fit_window_size(saved, (MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT),
+                           (MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT), screen)
 
-    return MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT
+
+def _on_main_window_shown():
+    global _main_window_size_ready, _main_window_last_size
+    if not _window or _main_window_size_ready:
+        return
+    # WinForms can scale the constructor size for DPI; restore actual saved pixels.
+    if _window_size_store.read():
+        _window.resize(*_get_main_window_size())
+    _main_window_last_size = _window.width, _window.height
+    _main_window_size_ready = True
+
+
+def _on_main_window_resized(width, height):
+    global _main_window_last_size
+    if not _window or not _main_window_size_ready:
+        return
+    try:
+        if sys.platform == 'win32':
+            hwnd = _get_window_hwnd(_window)
+            if not hwnd or ctypes.windll.user32.IsZoomed(hwnd) or ctypes.windll.user32.IsIconic(hwnd):
+                return
+        elif _main_window_maximized or _main_window_minimized:
+            return
+        size = int(_window.width), int(_window.height)
+        if size != _main_window_last_size:
+            _window_size_store.remember(*size)
+            _main_window_last_size = size
+    except Exception as error:
+        log_launcher(f'Window size capture failed: {error}')
 
 
 def _get_window_hwnd(window: webview.Window | None) -> int | None:
@@ -662,6 +690,7 @@ def _exit_after_backend_shutdown(timeout: float = 8.0):
 
 
 def _start_exit_worker():
+    _window_size_store.flush()
     if _exit_worker_started.is_set():
         return
     _exit_worker_started.set()
@@ -1111,6 +1140,9 @@ def start_macos_tray_detached():
 
 
 def on_closing():
+    if _window:
+        _on_main_window_resized(0, 0)
+    _window_size_store.flush()
     if _allow_window_close or not _tray_ready.is_set():
         _request_backend_shutdown()
         _start_exit_worker()
@@ -1140,8 +1172,14 @@ def _on_window_maximized():
 
 
 def _on_window_restored():
-    global _main_window_maximized
+    global _main_window_maximized, _main_window_minimized
     _main_window_maximized = False
+    _main_window_minimized = False
+
+
+def _on_window_minimized():
+    global _main_window_minimized
+    _main_window_minimized = True
 
 
 def _attach_main_window_events(window: webview.Window):
@@ -1149,6 +1187,9 @@ def _attach_main_window_events(window: webview.Window):
     window.events.closed += _on_window_closed
     window.events.maximized += _on_window_maximized
     window.events.restored += _on_window_restored
+    window.events.minimized += _on_window_minimized
+    window.events.resized += _on_main_window_resized
+    window.events.shown += _on_main_window_shown
     window.events.shown += lambda: _style_native_title_bar_async(window)
 
 
