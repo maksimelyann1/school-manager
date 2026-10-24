@@ -190,6 +190,12 @@ jobs:
       - name: Show release assets
         run: find release-assets -type f -maxdepth 3 -print
 
+      - name: Package standalone Codex MCP sources
+        run: |
+          mkdir -p release-assets/codex-mcp
+          git archive --format=zip --prefix=SchoolManager-Codex-MCP/ --output=release-assets/codex-mcp/SchoolManager-Codex-MCP.zip HEAD integrations/codex_mcp docs/mcp-implementation.md docs/mcp-tools.json docs/mcp-capabilities-audit.md docs/mcp-api-inventory.json docs/mcp-release-v2.14.md
+          python scripts/check_release_clean.py release-assets/codex-mcp/SchoolManager-Codex-MCP.zip
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:

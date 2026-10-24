@@ -37,6 +37,11 @@ FORBIDDEN_FILE_NAMES = {
 }
 
 FORBIDDEN_DIR_NAMES = {
+    ".venv",
+    "venv",
+    "backups",
+    "output",
+    "tmp",
     "template_files",
     "auto_message_files",
     "import_cache",

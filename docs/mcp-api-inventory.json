@@ -1,0 +1,2522 @@
+{
+  "audit_date": "2026-10-23",
+  "scope": "static_source_audit",
+  "backend_route_count": 131,
+  "mcp_tool_count": 11,
+  "backend_handler_count": 129,
+  "schema_visible_route_count": 129,
+  "native_bridge_method_count": 20,
+  "routes": [
+    {
+      "file": "backend/routers/ai.py",
+      "line": 66,
+      "method": "POST",
+      "path": "/api/ai/polish-text",
+      "handler": "polish_text",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "PolishTextRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/assistant.py",
+      "line": 22,
+      "method": "GET",
+      "path": "/api/assistant/status",
+      "handler": "assistant_status",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/assistant.py",
+      "line": 35,
+      "method": "GET",
+      "path": "/api/assistant/reports",
+      "handler": "check_reports",
+      "parameters": [
+        {
+          "name": "start",
+          "type": "date | None"
+        },
+        {
+          "name": "end",
+          "type": "date | None"
+        },
+        {
+          "name": "group",
+          "type": "str"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/auto_messages.py",
+      "line": 898,
+      "method": "GET",
+      "path": "/api/auto-messages/",
+      "handler": "get_all_auto_messages",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/auto_messages.py",
+      "line": 904,
+      "method": "POST",
+      "path": "/api/auto-messages/",
+      "handler": "create_auto_message",
+      "parameters": [
+        {
+          "name": "request",
+          "type": "Request"
+        },
+        {
+          "name": "background_tasks",
+          "type": "BackgroundTasks"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/auto_messages.py",
+      "line": 985,
+      "method": "DELETE",
+      "path": "/api/auto-messages/{auto_message_id}",
+      "handler": "delete_auto_message",
+      "parameters": [
+        {
+          "name": "auto_message_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/auto_messages.py",
+      "line": 1011,
+      "method": "PUT",
+      "path": "/api/auto-messages/{auto_message_id}",
+      "handler": "update_auto_message",
+      "parameters": [
+        {
+          "name": "auto_message_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "AutoMessageUpdatePayload"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/auto_messages.py",
+      "line": 1075,
+      "method": "PUT",
+      "path": "/api/auto-messages/{auto_message_id}/toggle",
+      "handler": "toggle_auto_message",
+      "parameters": [
+        {
+          "name": "auto_message_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/auto_messages.py",
+      "line": 1109,
+      "method": "POST",
+      "path": "/api/auto-messages/schedule-all",
+      "handler": "schedule_all_messages",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/categories.py",
+      "line": 14,
+      "method": "GET",
+      "path": "/api/categories/",
+      "handler": "get_all_categories",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Отримати всі категорії",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/categories.py",
+      "line": 20,
+      "method": "POST",
+      "path": "/api/categories/",
+      "handler": "create_category",
+      "parameters": [
+        {
+          "name": "category",
+          "type": "CategoryCreate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Створити нову категорію",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/categories.py",
+      "line": 33,
+      "method": "PUT",
+      "path": "/api/categories/{category_id}",
+      "handler": "update_category",
+      "parameters": [
+        {
+          "name": "category_id",
+          "type": "int"
+        },
+        {
+          "name": "category",
+          "type": "CategoryCreate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Оновити категорію",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/categories.py",
+      "line": 50,
+      "method": "DELETE",
+      "path": "/api/categories/{category_id}",
+      "handler": "delete_category",
+      "parameters": [
+        {
+          "name": "category_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Видалити категорію (групи залишаються, але без категорії)",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/dashboard.py",
+      "line": 45,
+      "method": "GET",
+      "path": "/api/dashboard/stats",
+      "handler": "get_dashboard_stats",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Отримати статистику для дашборду",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/files.py",
+      "line": 92,
+      "method": "GET",
+      "path": "/api/files/preview",
+      "handler": "preview_file",
+      "parameters": [
+        {
+          "name": "storage",
+          "type": "str"
+        },
+        {
+          "name": "stored_filename",
+          "type": "str"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/files.py",
+      "line": 104,
+      "method": "POST",
+      "path": "/api/files/open",
+      "handler": "open_file",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "StoredFileRequest"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/files.py",
+      "line": 111,
+      "method": "POST",
+      "path": "/api/files/open-upload",
+      "handler": "open_uploaded_file",
+      "parameters": [
+        {
+          "name": "file",
+          "type": "UploadFile"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/groups.py",
+      "line": 65,
+      "method": "POST",
+      "path": "/api/groups/sync",
+      "handler": "sync_groups",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Синхронізувати групи з Telegram через Pyrogram (знаходить всі групи/канали)",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/groups.py",
+      "line": 71,
+      "method": "GET",
+      "path": "/api/groups/",
+      "handler": "get_all_groups",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Отримати всі групи з назвою категорії",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/groups.py",
+      "line": 90,
+      "method": "PATCH",
+      "path": "/api/groups/bulk-category",
+      "handler": "update_groups_category",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "GroupBulkCategoryUpdate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Масово перенести групи/канали в категорію або прибрати категорію.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/groups.py",
+      "line": 119,
+      "method": "GET",
+      "path": "/api/groups/{group_id}",
+      "handler": "get_group",
+      "parameters": [
+        {
+          "name": "group_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Отримати групу за ID",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/groups.py",
+      "line": 128,
+      "method": "POST",
+      "path": "/api/groups/",
+      "handler": "create_group",
+      "parameters": [
+        {
+          "name": "group",
+          "type": "GroupCreate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Створити нову групу",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/groups.py",
+      "line": 138,
+      "method": "PUT",
+      "path": "/api/groups/{group_id}",
+      "handler": "update_group",
+      "parameters": [
+        {
+          "name": "group_id",
+          "type": "int"
+        },
+        {
+          "name": "group",
+          "type": "GroupCreate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Оновити групу",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/groups.py",
+      "line": 153,
+      "method": "DELETE",
+      "path": "/api/groups/{group_id}",
+      "handler": "delete_group",
+      "parameters": [
+        {
+          "name": "group_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Видалити групу",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logika.py",
+      "line": 95,
+      "method": "GET",
+      "path": "/api/logika/settings",
+      "handler": "get_settings",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logika.py",
+      "line": 112,
+      "method": "POST",
+      "path": "/api/logika/login",
+      "handler": "login_logika",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "LoginRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logika.py",
+      "line": 170,
+      "method": "POST",
+      "path": "/api/logika/update-settings",
+      "handler": "update_settings",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "UpdateSettingsRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logika.py",
+      "line": 182,
+      "method": "POST",
+      "path": "/api/logika/disconnect",
+      "handler": "disconnect_logika",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logika.py",
+      "line": 200,
+      "method": "POST",
+      "path": "/api/logika/sync-schedule",
+      "handler": "sync_schedule",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logika.py",
+      "line": 407,
+      "method": "POST",
+      "path": "/api/logika/fetch-absents/{lesson_id}",
+      "handler": "fetch_absents_for_lesson",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logs.py",
+      "line": 14,
+      "method": "GET",
+      "path": "/api/logs",
+      "handler": "get_logs",
+      "parameters": [
+        {
+          "name": "limit",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Отримати останні логи",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logs.py",
+      "line": 14,
+      "method": "GET",
+      "path": "/api/logs/",
+      "handler": "get_logs",
+      "parameters": [
+        {
+          "name": "limit",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Отримати останні логи",
+      "include_in_schema": false
+    },
+    {
+      "file": "backend/routers/logs.py",
+      "line": 23,
+      "method": "DELETE",
+      "path": "/api/logs",
+      "handler": "clear_logs",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Очистити всі логи",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/logs.py",
+      "line": 23,
+      "method": "DELETE",
+      "path": "/api/logs/",
+      "handler": "clear_logs",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Очистити всі логи",
+      "include_in_schema": false
+    },
+    {
+      "file": "backend/routers/logs.py",
+      "line": 38,
+      "method": "POST",
+      "path": "/api/logs/client",
+      "handler": "log_client_message",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "ClientLogPayload"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Записати помилку або подію з фронтенду в Журнал подій",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/messages.py",
+      "line": 833,
+      "method": "POST",
+      "path": "/api/messages/import-url",
+      "handler": "import_url_file",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "ImportUrlRequest"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/messages.py",
+      "line": 900,
+      "method": "POST",
+      "path": "/api/messages/send",
+      "handler": "send_message",
+      "parameters": [
+        {
+          "name": "group_ids",
+          "type": "str"
+        },
+        {
+          "name": "message",
+          "type": "str"
+        },
+        {
+          "name": "files",
+          "type": "List[UploadFile]"
+        },
+        {
+          "name": "stored_files",
+          "type": "str"
+        },
+        {
+          "name": "stickers",
+          "type": "str"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 2747,
+      "method": "GET",
+      "path": "/api/parents-report/settings",
+      "handler": "get_report_settings",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 2755,
+      "method": "GET",
+      "path": "/api/parents-report/settings/api-key",
+      "handler": "get_report_api_key",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 2761,
+      "method": "PUT",
+      "path": "/api/parents-report/settings",
+      "handler": "update_report_settings",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "ReportSettingsUpdate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 2813,
+      "method": "POST",
+      "path": "/api/parents-report/settings/reset-prompt",
+      "handler": "reset_report_prompt_settings",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 2823,
+      "method": "POST",
+      "path": "/api/parents-report/import",
+      "handler": "import_google_sheet",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "ImportRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 2855,
+      "method": "POST",
+      "path": "/api/parents-report/sync-source",
+      "handler": "sync_builtin_report_source",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 2883,
+      "method": "POST",
+      "path": "/api/parents-report/import-file",
+      "handler": "import_xlsx_file",
+      "parameters": [
+        {
+          "name": "file",
+          "type": "UploadFile"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3030,
+      "method": "GET",
+      "path": "/api/parents-report/export",
+      "handler": "export_workbook",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3065,
+      "method": "GET",
+      "path": "/api/parents-report/workbook",
+      "handler": "get_workbook",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3077,
+      "method": "GET",
+      "path": "/api/parents-report/lessons",
+      "handler": "get_lessons",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3084,
+      "method": "POST",
+      "path": "/api/parents-report/schedule",
+      "handler": "create_schedule_row",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3113,
+      "method": "PATCH",
+      "path": "/api/parents-report/schedule/{lesson_id}",
+      "handler": "update_schedule_row",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "ScheduleUpdate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3180,
+      "method": "POST",
+      "path": "/api/parents-report/schedule/{lesson_id}/postpone",
+      "handler": "postpone_schedule_row",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "PostponeLessonRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3210,
+      "method": "DELETE",
+      "path": "/api/parents-report/schedule/{lesson_id}/postpone",
+      "handler": "cancel_schedule_postpone",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3229,
+      "method": "PATCH",
+      "path": "/api/parents-report/schedule/{lesson_id}/pause",
+      "handler": "pause_schedule_row",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "PauseLessonRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3246,
+      "method": "DELETE",
+      "path": "/api/parents-report/schedule/{lesson_id}",
+      "handler": "delete_schedule_row",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3256,
+      "method": "GET",
+      "path": "/api/parents-report/courses",
+      "handler": "get_courses",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3262,
+      "method": "POST",
+      "path": "/api/parents-report/courses",
+      "handler": "create_course",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "CourseCreate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3277,
+      "method": "PATCH",
+      "path": "/api/parents-report/courses/{course_id}",
+      "handler": "update_course",
+      "parameters": [
+        {
+          "name": "course_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "CourseUpdate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3307,
+      "method": "DELETE",
+      "path": "/api/parents-report/courses/{course_id}",
+      "handler": "delete_course",
+      "parameters": [
+        {
+          "name": "course_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3317,
+      "method": "POST",
+      "path": "/api/parents-report/courses/{course_id}/lessons",
+      "handler": "create_course_lesson",
+      "parameters": [
+        {
+          "name": "course_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "CourseLessonCreate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3348,
+      "method": "PATCH",
+      "path": "/api/parents-report/course-lessons/{lesson_id}",
+      "handler": "update_course_lesson",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "CourseLessonUpdate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3374,
+      "method": "DELETE",
+      "path": "/api/parents-report/course-lessons/{lesson_id}",
+      "handler": "delete_course_lesson",
+      "parameters": [
+        {
+          "name": "lesson_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3386,
+      "method": "GET",
+      "path": "/api/parents-report/pending",
+      "handler": "get_pending_reports",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3392,
+      "method": "GET",
+      "path": "/api/parents-report/mappings",
+      "handler": "get_mappings",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3412,
+      "method": "PUT",
+      "path": "/api/parents-report/mappings",
+      "handler": "update_mapping",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "MappingUpdate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3445,
+      "method": "POST",
+      "path": "/api/parents-report/send",
+      "handler": "send_report",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "SendReportRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3468,
+      "method": "POST",
+      "path": "/api/parents-report/preview",
+      "handler": "preview_manual_report",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "SendReportRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3500,
+      "method": "GET",
+      "path": "/api/parents-report/runs/{run_id}/resend-preview",
+      "handler": "preview_report_resend",
+      "parameters": [
+        {
+          "name": "run_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3524,
+      "method": "POST",
+      "path": "/api/parents-report/runs/{run_id}/resend",
+      "handler": "resend_report",
+      "parameters": [
+        {
+          "name": "run_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "ResendReportRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3538,
+      "method": "GET",
+      "path": "/api/parents-report/runs",
+      "handler": "get_report_runs",
+      "parameters": [
+        {
+          "name": "limit",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        },
+        {
+          "name": "run_id",
+          "type": "int | None"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/parents_report.py",
+      "line": 3570,
+      "method": "POST",
+      "path": "/api/parents-report/auto/run-now",
+      "handler": "run_auto_reports_now",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 43,
+      "method": "GET",
+      "path": "/api/planner/google/status",
+      "handler": "status",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 80,
+      "method": "POST",
+      "path": "/api/planner/google/connect",
+      "handler": "connect",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 85,
+      "method": "POST",
+      "path": "/api/planner/google/cancel",
+      "handler": "cancel_login",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 91,
+      "method": "POST",
+      "path": "/api/planner/google/disconnect",
+      "handler": "disconnect",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 103,
+      "method": "POST",
+      "path": "/api/planner/google/calendars",
+      "handler": "discover_calendars",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 136,
+      "method": "POST",
+      "path": "/api/planner/google/calendar",
+      "handler": "create_calendar",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 168,
+      "method": "PATCH",
+      "path": "/api/planner/google/calendars/{calendar_id}",
+      "handler": "select_calendar",
+      "parameters": [
+        {
+          "name": "calendar_id",
+          "type": "int"
+        },
+        {
+          "name": "payload",
+          "type": "CalendarChoice"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/planner_google.py",
+      "line": 181,
+      "method": "POST",
+      "path": "/api/planner/google/sync",
+      "handler": "manual_sync",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 32,
+      "method": "GET",
+      "path": "/api/settings/interface",
+      "handler": "get_interface_settings",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 38,
+      "method": "PUT",
+      "path": "/api/settings/interface",
+      "handler": "save_interface_settings",
+      "parameters": [
+        {
+          "name": "settings",
+          "type": "InterfaceSettingsState"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 275,
+      "method": "GET",
+      "path": "/api/settings/bot",
+      "handler": "get_bot_settings",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Отримати налаштування + статус підключення Pyrogram",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 292,
+      "method": "POST",
+      "path": "/api/settings/bot",
+      "handler": "save_bot_settings",
+      "parameters": [
+        {
+          "name": "settings",
+          "type": "BotSettingsCreate"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Зберегти credentials для Pyrogram (api_id, api_hash, phone)",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 315,
+      "method": "POST",
+      "path": "/api/settings/auth/send-code",
+      "handler": "send_auth_code",
+      "parameters": [
+        {
+          "name": "req",
+          "type": "SendCodeRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Крок 1: Відправити SMS-код на номер телефону",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 349,
+      "method": "POST",
+      "path": "/api/settings/auth/verify-code",
+      "handler": "verify_auth_code",
+      "parameters": [
+        {
+          "name": "req",
+          "type": "VerifyCodeRequest"
+        },
+        {
+          "name": "background_tasks",
+          "type": "BackgroundTasks"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Крок 2: Підтвердити SMS-код",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 364,
+      "method": "POST",
+      "path": "/api/settings/auth/verify-2fa",
+      "handler": "verify_2fa",
+      "parameters": [
+        {
+          "name": "req",
+          "type": "Verify2FARequest"
+        },
+        {
+          "name": "background_tasks",
+          "type": "BackgroundTasks"
+        }
+      ],
+      "description": "Крок 3 (опціонально): Ввести пароль 2FA",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 377,
+      "method": "POST",
+      "path": "/api/settings/auth/logout",
+      "handler": "logout",
+      "parameters": [],
+      "description": "Тимчасово від'єднати Telegram без видалення збереженої сесії.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 390,
+      "method": "POST",
+      "path": "/api/settings/auth/reconnect",
+      "handler": "reconnect",
+      "parameters": [
+        {
+          "name": "background_tasks",
+          "type": "BackgroundTasks"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Підключити збережену Telegram-сесію після ручного від'єднання.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 412,
+      "method": "POST",
+      "path": "/api/settings/auth/logout-full",
+      "handler": "logout_full",
+      "parameters": [],
+      "description": "Повністю вийти з Telegram і видалити тільки дані авторизації.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 420,
+      "method": "GET",
+      "path": "/api/settings/auth/status",
+      "handler": "auth_status",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Перевірити статус авторизації",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 439,
+      "method": "POST",
+      "path": "/api/settings/auth/qr",
+      "handler": "get_qr_code",
+      "parameters": [
+        {
+          "name": "req",
+          "type": "QRLoginRequest"
+        },
+        {
+          "name": "background_tasks",
+          "type": "BackgroundTasks"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "QR-код авторизація: генерує QR-зображення для сканування",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 478,
+      "method": "POST",
+      "path": "/api/settings/auth/qr/check",
+      "handler": "check_qr_code",
+      "parameters": [
+        {
+          "name": "background_tasks",
+          "type": "BackgroundTasks"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Перевіряє чи користувач просканував QR-код",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/settings.py",
+      "line": 507,
+      "method": "POST",
+      "path": "/api/settings/auth/credentials/reset",
+      "handler": "reset_auth_credentials",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": "Скинути власні Telegram API ID/API Hash і повернутися до вбудованого ключа додатку.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/stickers.py",
+      "line": 678,
+      "method": "GET",
+      "path": "/api/stickers/packs",
+      "handler": "get_sticker_packs",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/stickers.py",
+      "line": 711,
+      "method": "GET",
+      "path": "/api/stickers/packs/{short_name}",
+      "handler": "get_sticker_pack",
+      "parameters": [
+        {
+          "name": "short_name",
+          "type": "str"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/stickers.py",
+      "line": 735,
+      "method": "GET",
+      "path": "/api/stickers/warmup",
+      "handler": "get_sticker_warmup_status",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/stickers.py",
+      "line": 740,
+      "method": "POST",
+      "path": "/api/stickers/warmup",
+      "handler": "start_sticker_warmup",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/stickers.py",
+      "line": 746,
+      "method": "GET",
+      "path": "/api/stickers/thumb",
+      "handler": "get_sticker_thumb",
+      "parameters": [
+        {
+          "name": "file_id",
+          "type": "str"
+        },
+        {
+          "name": "mime_type",
+          "type": "str"
+        },
+        {
+          "name": "pack",
+          "type": "str"
+        },
+        {
+          "name": "document_id",
+          "type": "str"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/stickers.py",
+      "line": 789,
+      "method": "GET",
+      "path": "/api/stickers/animation",
+      "handler": "get_sticker_animation",
+      "parameters": [
+        {
+          "name": "file_id",
+          "type": "str"
+        },
+        {
+          "name": "mime_type",
+          "type": "str"
+        },
+        {
+          "name": "pack",
+          "type": "str"
+        },
+        {
+          "name": "document_id",
+          "type": "str"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/stickers.py",
+      "line": 835,
+      "method": "GET",
+      "path": "/api/stickers/file",
+      "handler": "get_sticker_file",
+      "parameters": [
+        {
+          "name": "file_id",
+          "type": "str"
+        },
+        {
+          "name": "mime_type",
+          "type": "str"
+        },
+        {
+          "name": "pack",
+          "type": "str"
+        },
+        {
+          "name": "document_id",
+          "type": "str"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 754,
+      "method": "GET",
+      "path": "/api/system/version",
+      "handler": "get_version",
+      "parameters": [],
+      "description": "Повертає поточну версію та, якщо налаштовано URL,\nперевіряє наявність оновлення.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 808,
+      "method": "GET",
+      "path": "/api/system/cache/status",
+      "handler": "get_cache_status",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 816,
+      "method": "POST",
+      "path": "/api/system/cache/open-folder",
+      "handler": "open_cache_folder",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 823,
+      "method": "POST",
+      "path": "/api/system/cache/cleanup",
+      "handler": "cleanup_app_cache",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 839,
+      "method": "POST",
+      "path": "/api/system/cache/stickers/cleanup",
+      "handler": "cleanup_stickers_cache",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 850,
+      "method": "GET",
+      "path": "/api/system/diagnostics/log-file",
+      "handler": "download_diagnostic_log",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 871,
+      "method": "GET",
+      "path": "/api/system/autostart",
+      "handler": "get_autostart",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 876,
+      "method": "POST",
+      "path": "/api/system/autostart",
+      "handler": "set_autostart",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "AutostartRequest"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 888,
+      "method": "GET",
+      "path": "/api/system/notifications",
+      "handler": "get_windows_notifications",
+      "parameters": [],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 893,
+      "method": "POST",
+      "path": "/api/system/notifications",
+      "handler": "set_windows_notifications",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "NotificationsRequest"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 904,
+      "method": "GET",
+      "path": "/api/system/update/progress",
+      "handler": "get_update_progress",
+      "parameters": [],
+      "description": "Повертає поточний стан завантаження оновлення.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 910,
+      "method": "POST",
+      "path": "/api/system/update/download",
+      "handler": "start_update_download",
+      "parameters": [
+        {
+          "name": "background_tasks",
+          "type": "BackgroundTasks"
+        },
+        {
+          "name": "payload",
+          "type": "Optional[UpdateDownloadRequest]"
+        }
+      ],
+      "description": "Починає фонове завантаження нового встановлювача.\nСпочатку перевіряє URL оновлення.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 1098,
+      "method": "POST",
+      "path": "/api/system/update/launch",
+      "handler": "launch_update",
+      "parameters": [],
+      "description": "Запускає завантажений встановлювач і зупиняє сервер.\nВиконується тільки після статусу 'done'.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 1128,
+      "method": "GET",
+      "path": "/api/system/backup",
+      "handler": "download_backup",
+      "parameters": [],
+      "description": "Завантажує резервну копію бази даних (school_manager.db).",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/system.py",
+      "line": 1152,
+      "method": "POST",
+      "path": "/api/system/restore",
+      "handler": "restore_backup",
+      "parameters": [
+        {
+          "name": "file",
+          "type": "UploadFile"
+        }
+      ],
+      "description": "Відновлює базу даних з завантаженого файлу .db.\nСтворює автоматичний бекап перед заміною.",
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 163,
+      "method": "GET",
+      "path": "/api/tasks",
+      "handler": "list_tasks",
+      "parameters": [
+        {
+          "name": "start",
+          "type": "date | None"
+        },
+        {
+          "name": "end",
+          "type": "date | None"
+        },
+        {
+          "name": "bucket",
+          "type": "Literal['calendar', 'undated', 'overdue', 'trash', 'all', 'reminders']"
+        },
+        {
+          "name": "q",
+          "type": "str"
+        },
+        {
+          "name": "category",
+          "type": "str"
+        },
+        {
+          "name": "source",
+          "type": "str"
+        },
+        {
+          "name": "completed",
+          "type": "bool"
+        },
+        {
+          "name": "timezone_name",
+          "type": "str"
+        },
+        {
+          "name": "limit",
+          "type": "int"
+        },
+        {
+          "name": "offset",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        },
+        {
+          "name": "track_activity",
+          "type": "bool"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 222,
+      "method": "POST",
+      "path": "/api/tasks",
+      "handler": "create_task",
+      "parameters": [
+        {
+          "name": "payload",
+          "type": "CreateTask"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 246,
+      "method": "GET",
+      "path": "/api/tasks/{item_id}",
+      "handler": "read_task",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 261,
+      "method": "POST",
+      "path": "/api/tasks/{item_id}/attachments",
+      "handler": "add_attachment",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "file",
+          "type": "UploadFile"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 292,
+      "method": "GET",
+      "path": "/api/tasks/{item_id}/attachments/{attachment_id}",
+      "handler": "download_attachment",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "attachment_id",
+          "type": "str"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 303,
+      "method": "DELETE",
+      "path": "/api/tasks/{item_id}/attachments/{attachment_id}",
+      "handler": "delete_attachment",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "attachment_id",
+          "type": "str"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 318,
+      "method": "PATCH",
+      "path": "/api/tasks/{item_id}",
+      "handler": "edit_task",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "payload",
+          "type": "EditTask"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 349,
+      "method": "PATCH",
+      "path": "/api/tasks/{item_id}/color",
+      "handler": "set_event_color",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "payload",
+          "type": "EventColor"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 381,
+      "method": "DELETE",
+      "path": "/api/tasks/{item_id}",
+      "handler": "delete_task",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "revision",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 386,
+      "method": "POST",
+      "path": "/api/tasks/{item_id}/restore",
+      "handler": "restore_task",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "payload",
+          "type": "Revision"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 399,
+      "method": "POST",
+      "path": "/api/tasks/{item_id}/reminders",
+      "handler": "add_reminder",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "payload",
+          "type": "ReminderRequest"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/tasks.py",
+      "line": 424,
+      "method": "DELETE",
+      "path": "/api/tasks/{item_id}/reminders/{reminder_id}",
+      "handler": "remove_reminder",
+      "parameters": [
+        {
+          "name": "item_id",
+          "type": "str"
+        },
+        {
+          "name": "reminder_id",
+          "type": "str"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/templates.py",
+      "line": 180,
+      "method": "GET",
+      "path": "/api/templates/",
+      "handler": "get_all_templates",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/templates.py",
+      "line": 186,
+      "method": "GET",
+      "path": "/api/templates/{template_id}",
+      "handler": "get_template",
+      "parameters": [
+        {
+          "name": "template_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/templates.py",
+      "line": 194,
+      "method": "POST",
+      "path": "/api/templates/",
+      "handler": "create_template",
+      "parameters": [
+        {
+          "name": "request",
+          "type": "Request"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/templates.py",
+      "line": 226,
+      "method": "PUT",
+      "path": "/api/templates/{template_id}",
+      "handler": "update_template",
+      "parameters": [
+        {
+          "name": "template_id",
+          "type": "int"
+        },
+        {
+          "name": "request",
+          "type": "Request"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/templates.py",
+      "line": 273,
+      "method": "DELETE",
+      "path": "/api/templates/{template_id}",
+      "handler": "delete_template",
+      "parameters": [
+        {
+          "name": "template_id",
+          "type": "int"
+        },
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    },
+    {
+      "file": "backend/routers/widgets.py",
+      "line": 14,
+      "method": "GET",
+      "path": "/api/widgets/lessons",
+      "handler": "upcoming_lessons",
+      "parameters": [
+        {
+          "name": "db",
+          "type": "Session"
+        }
+      ],
+      "description": null,
+      "include_in_schema": true
+    }
+  ],
+  "mcp_tools": [
+    {
+      "name": "get_status",
+      "line": 47,
+      "description": "Перевірити, чи запущено сумісний School Manager, Telegram і системні сповіщення."
+    },
+    {
+      "name": "resolve_local_date",
+      "line": 52,
+      "description": "Уточнити відносну дату. Рівно одне: day=YYYY-MM-DD, weekday (0=ПН,5=СБ,6=НД), days_ahead (0=сьогодні,1=завтра). Найближчий майбутній weekday з урахуванням часу."
+    },
+    {
+      "name": "list_groups",
+      "line": 59,
+      "description": "Знайти локальні групи за частиною назви, щоб отримати group_id."
+    },
+    {
+      "name": "list_lessons",
+      "line": 65,
+      "description": "Переглянути локальний розклад занять для батьківських звітів; без синхронізації чи надсилання."
+    },
+    {
+      "name": "list_items",
+      "line": 74,
+      "description": "Знайти задачі й події. Дати YYYY-MM-DD; start включно, end виключно. has_more вимагає наступної сторінки через offset."
+    },
+    {
+      "name": "get_item",
+      "line": 81,
+      "description": "Прочитати подію/задачу, revision та стан нагадувань перед зміною або після невизначеного результату."
+    },
+    {
+      "name": "create_event",
+      "line": 86,
+      "description": "Створити заняття/подію і системне нагадування. day=YYYY-MM-DD, clock=HH:MM; request_id=новий UUID (повтор запиту: той самий UUID). Відступ 0=у час початку, null=без нагадування. partial=true означає, що подія вже існує."
+    },
+    {
+      "name": "create_task",
+      "line": 95,
+      "description": "Створити задачу, за потреби з датою й системним нагадуванням. request_id=UUID, зберігайте його при повторі. Для нагадування обов'язкові day, clock і remind_before_minutes."
+    },
+    {
+      "name": "set_reminder",
+      "line": 103,
+      "description": "Додати системне нагадування до наявного запису на YYYY-MM-DD HH:MM у часовому поясі запису. Повтор тієї самої дати/часу не створює дубль."
+    },
+    {
+      "name": "update_item",
+      "line": 109,
+      "description": "Змінити задачу/подію з revision від get_item. Дати/час, назва, опис, status. Для зміни тривалості передайте end_date/end_time; done лише для задач."
+    },
+    {
+      "name": "check_reports",
+      "line": 114,
+      "description": "Перевірити відправлення звітів за локальним розкладом і журналом. Дати YYYY-MM-DD включно, до 31 дня, типово останні 7 днів. Повертає sent/missing/error/manual_required/unconfirmed, all_sent та обмеження; нічого не надсилає."
+    }
+  ],
+  "native_methods": [
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "get_widgets",
+      "line": 778
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "create_widget",
+      "line": 781
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "update_widget",
+      "line": 784
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "remove_widget",
+      "line": 787
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "get_window_state",
+      "line": 790
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "minimize_window",
+      "line": 811
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "toggle_maximize_window",
+      "line": 816
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "hide_window",
+      "line": 834
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "save_file_dialog",
+      "line": 839
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "save_log_file_dialog",
+      "line": 871
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "import_clipboard_files",
+      "line": 903
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "open_external_url",
+      "line": 910
+    },
+    {
+      "file": "desktop_app.py",
+      "class": "DesktopApi",
+      "method": "resize_window",
+      "line": 931
+    },
+    {
+      "file": "desktop_widgets.py",
+      "class": "WidgetApi",
+      "method": "get_widget_state",
+      "line": 68
+    },
+    {
+      "file": "desktop_widgets.py",
+      "class": "WidgetApi",
+      "method": "update_widget",
+      "line": 71
+    },
+    {
+      "file": "desktop_widgets.py",
+      "class": "WidgetApi",
+      "method": "hide_widget",
+      "line": 74
+    },
+    {
+      "file": "desktop_widgets.py",
+      "class": "WidgetApi",
+      "method": "open_widget_target",
+      "line": 77
+    },
+    {
+      "file": "desktop_widgets.py",
+      "class": "WidgetApi",
+      "method": "open_widget_lesson",
+      "line": 80
+    },
+    {
+      "file": "desktop_widgets.py",
+      "class": "WidgetApi",
+      "method": "begin_widget_drag",
+      "line": 83
+    },
+    {
+      "file": "desktop_widgets.py",
+      "class": "WidgetApi",
+      "method": "resize_widget",
+      "line": 86
+    }
+  ]
+}

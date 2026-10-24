@@ -1,0 +1,13 @@
+{
+  "latest_version": "2.14",
+  "download_url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.14/SchoolManager_Setup.exe",
+  "changelog": "• Додано локальний API асистента для окремого MCP-компонента Codex із 93 командами: задачі, події, нагадування, групи, шаблони, повідомлення, розклад, курси, файли та інтеграції.\n• Додано перевірку стану звітів за локальним розкладом і журналом: відправлені, пропущені, помилкові, ручні й непідтверджені. Перевірка нічого не надсилає.\n• Команди відправлення та налаштування звітів використовують чинні операції програми зі збереженням перевірок відвідуваності, доставки й повторів.\n• MCP встановлюється окремо від програми. Для керування через Codex оновіть School Manager, підключіть MCP за інструкцією та перезапустіть Codex.",
+  "downloads": {
+    "windows": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.14/SchoolManager_Setup.exe"
+    },
+    "macos": {
+      "url": "https://github.com/maksimelyann1/school-manager/releases/download/V2.14/SchoolManager-macOS-unsigned.dmg"
+    }
+  }
+}

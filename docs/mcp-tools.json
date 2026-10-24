@@ -1,0 +1,5022 @@
+{
+  "transport": "stdio",
+  "tool_count": 93,
+  "tools": [
+    {
+      "name": "get_status",
+      "description": "Перевірити, чи запущено сумісний School Manager, Telegram і системні сповіщення.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "get_statusArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "resolve_local_date",
+      "description": "Уточнити відносну дату. Рівно одне: day=YYYY-MM-DD, weekday (0=ПН,5=СБ,6=НД), days_ahead (0=сьогодні,1=завтра). Найближчий майбутній weekday з урахуванням часу.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Day"
+          },
+          "weekday": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Weekday"
+          },
+          "days_ahead": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Days Ahead"
+          },
+          "clock": {
+            "default": "11:00",
+            "title": "Clock",
+            "type": "string"
+          },
+          "timezone_name": {
+            "default": "Europe/Kyiv",
+            "title": "Timezone Name",
+            "type": "string"
+          },
+          "fold": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fold"
+          }
+        },
+        "title": "resolve_local_dateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_groups",
+      "description": "Знайти локальні групи за частиною назви, щоб отримати group_id.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "title": "list_groupsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_lessons",
+      "description": "Переглянути локальний розклад занять для батьківських звітів; без синхронізації чи надсилання.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "title": "list_lessonsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_items",
+      "description": "Знайти задачі й події. Дати YYYY-MM-DD; start включно, end виключно. has_more вимагає наступної сторінки через offset.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End"
+          },
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          },
+          "bucket": {
+            "default": "calendar",
+            "enum": [
+              "calendar",
+              "all",
+              "undated",
+              "overdue",
+              "reminders",
+              "trash"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
+          "completed": {
+            "default": false,
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "category": {
+            "default": "",
+            "title": "Category",
+            "type": "string"
+          },
+          "source": {
+            "default": "",
+            "title": "Source",
+            "type": "string"
+          },
+          "timezone_name": {
+            "default": "Europe/Kyiv",
+            "title": "Timezone Name",
+            "type": "string"
+          }
+        },
+        "title": "list_itemsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_item",
+      "description": "Прочитати подію/задачу, revision та стан нагадувань перед зміною або після невизначеного результату.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id"
+        ],
+        "title": "get_itemArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Створити подію. day=YYYY-MM-DD, clock=HH:MM, duration_minutes — тривалість. На весь день: clock=null, remind_before_minutes=null; end_day — останній день включно. options: категорія/серія/місце/гості/Meet/Google. request_id=UUID (повтор: той самий). Відступ 0=нагадати на початку, null=без. partial=true: запис уже створений.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "$defs": {
+          "PlannerOptions": {
+            "additionalProperties": false,
+            "properties": {
+              "category": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "lesson",
+                      "substitution",
+                      "preparation",
+                      "event",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Category"
+              },
+              "parent_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parent Id"
+              },
+              "group_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Group Id"
+              },
+              "google_enabled": {
+                "default": false,
+                "title": "Google Enabled",
+                "type": "boolean"
+              },
+              "google_calendar_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Google Calendar Id"
+              },
+              "location": {
+                "default": "",
+                "maxLength": 1000,
+                "title": "Location",
+                "type": "string"
+              },
+              "recurrence": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "title": "Recurrence",
+                "type": "array"
+              },
+              "attendees": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "title": "Attendees",
+                "type": "array"
+              },
+              "meet_requested": {
+                "default": false,
+                "title": "Meet Requested",
+                "type": "boolean"
+              }
+            },
+            "title": "PlannerOptions",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "clock": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Clock"
+          },
+          "duration_minutes": {
+            "default": 60,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "remind_before_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "title": "Remind Before Minutes"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Group Id"
+          },
+          "timezone_name": {
+            "default": "Europe/Kyiv",
+            "title": "Timezone Name",
+            "type": "string"
+          },
+          "fold": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fold"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PlannerOptions"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "end_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Day"
+          }
+        },
+        "required": [
+          "title",
+          "request_id",
+          "day"
+        ],
+        "title": "create_eventArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_task",
+      "description": "Створити задачу, за потреби з датою й системним нагадуванням. request_id=UUID, зберігайте його при повторі. Для нагадування обов'язкові day, clock і remind_before_minutes.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "$defs": {
+          "PlannerOptions": {
+            "additionalProperties": false,
+            "properties": {
+              "category": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "lesson",
+                      "substitution",
+                      "preparation",
+                      "event",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Category"
+              },
+              "parent_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parent Id"
+              },
+              "group_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Group Id"
+              },
+              "google_enabled": {
+                "default": false,
+                "title": "Google Enabled",
+                "type": "boolean"
+              },
+              "google_calendar_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Google Calendar Id"
+              },
+              "location": {
+                "default": "",
+                "maxLength": 1000,
+                "title": "Location",
+                "type": "string"
+              },
+              "recurrence": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "title": "Recurrence",
+                "type": "array"
+              },
+              "attendees": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "title": "Attendees",
+                "type": "array"
+              },
+              "meet_requested": {
+                "default": false,
+                "title": "Meet Requested",
+                "type": "boolean"
+              }
+            },
+            "title": "PlannerOptions",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Day"
+          },
+          "clock": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Clock"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "remind_before_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Remind Before Minutes"
+          },
+          "timezone_name": {
+            "default": "Europe/Kyiv",
+            "title": "Timezone Name",
+            "type": "string"
+          },
+          "fold": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fold"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PlannerOptions"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "title",
+          "request_id"
+        ],
+        "title": "create_taskArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_reminder",
+      "description": "Додати нагадування на YYYY-MM-DD HH:MM у часовому поясі запису. system — системне, telegram — особисте у «Збереженому», не в групу. Повтор того самого часу/каналу не створює дубль.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "clock": {
+            "title": "Clock",
+            "type": "string"
+          },
+          "fold": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fold"
+          },
+          "channel": {
+            "default": "system",
+            "enum": [
+              "system",
+              "telegram"
+            ],
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "revision",
+          "day",
+          "clock"
+        ],
+        "title": "set_reminderArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_item",
+      "description": "Змінити задачу/подію з revision від get_item: текст, дати/час, категорію, групу, місце, серію, Google/гостей/Meet. end_date/end_time задають завершення; done лише для задач. Зміна серії стосується всіх входжень, нагадування — конкретного моменту.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "$defs": {
+          "ItemChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Title"
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "maxLength": 20000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Description"
+              },
+              "date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Date"
+              },
+              "time": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Time"
+              },
+              "end_date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End Date"
+              },
+              "end_time": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End Time"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "open",
+                      "done",
+                      "cancelled"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Status"
+              },
+              "fold": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      0,
+                      1
+                    ],
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Fold"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "task",
+                      "event"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Kind"
+              },
+              "category": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "lesson",
+                      "substitution",
+                      "preparation",
+                      "event",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Category"
+              },
+              "timezone": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Timezone"
+              },
+              "parent_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parent Id"
+              },
+              "group_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Group Id"
+              },
+              "google_enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Google Enabled"
+              },
+              "google_calendar_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Google Calendar Id"
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "maxLength": 1000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Location"
+              },
+              "recurrence": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Recurrence"
+              },
+              "attendees": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Attendees"
+              },
+              "meet_requested": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Meet Requested"
+              }
+            },
+            "title": "ItemChanges",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "changes": {
+            "$ref": "#/$defs/ItemChanges"
+          }
+        },
+        "required": [
+          "item_id",
+          "revision",
+          "changes"
+        ],
+        "title": "update_itemArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "check_reports",
+      "description": "Перевірити відправлення звітів за локальним розкладом і журналом. Дати YYYY-MM-DD включно, до 31 дня, типово останні 7 днів. Повертає sent/missing/error/manual_required/unconfirmed, all_sent та обмеження; нічого не надсилає.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End"
+          },
+          "group": {
+            "default": "",
+            "title": "Group",
+            "type": "string"
+          }
+        },
+        "title": "check_reportsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_categories",
+      "description": "Переглянути категорії груп. Це довільні категорії користувача, а не ролі батьків/учнів.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "list_categoriesArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_category",
+      "description": "Створити локальну категорію груп.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "create_categoryArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_category",
+      "description": "Перейменувати локальну категорію, зберігши її групи.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "category_id": {
+            "title": "Category Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category_id",
+          "name"
+        ],
+        "title": "update_categoryArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_category",
+      "description": "Видалити категорію. Групи залишаються без цієї категорії.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "category_id": {
+            "title": "Category Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category_id"
+        ],
+        "title": "delete_categoryArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_group",
+      "description": "Прочитати конкретну групу та її Telegram ID перед зміною/відправкою.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "title": "get_groupArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_group",
+      "description": "Додати відомий Telegram-чат у локальний список. Не створює чат у Telegram.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "string"
+          },
+          "lesson_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lesson Day"
+          },
+          "lesson_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lesson Time"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Category Id"
+          }
+        },
+        "required": [
+          "name",
+          "telegram_id"
+        ],
+        "title": "create_groupArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_group",
+      "description": "Змінити тільки зазначені локальні поля групи; решта полів зберігаються. Не перейменовує Telegram-чат.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "GroupChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Name"
+              },
+              "telegram_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Telegram Id"
+              },
+              "lesson_time": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Time"
+              },
+              "lesson_day": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Day"
+              },
+              "category_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Category Id"
+              }
+            },
+            "title": "GroupChanges",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "changes": {
+            "$ref": "#/$defs/GroupChanges"
+          }
+        },
+        "required": [
+          "group_id",
+          "changes"
+        ],
+        "title": "update_groupArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_group",
+      "description": "Видалити локальну групу та її залежні автоповідомлення за явним запитом. Не видаляє Telegram-чат.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "title": "delete_groupArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "sync_groups",
+      "description": "Синхронізувати наявні Telegram-групи/канали в локальний список.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "sync_groupsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "assign_groups_category",
+      "description": "Призначити категорію конкретним групам; null прибирає категорію.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "group_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Category Id"
+          }
+        },
+        "required": [
+          "group_ids"
+        ],
+        "title": "assign_groups_categoryArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "Знайти шаблони за назвою або текстом, включно з файлами й наліпками.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "title": "list_templatesArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Прочитати повний збережений шаблон перед редагуванням/використанням.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "template_id"
+        ],
+        "title": "get_templateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Зберегти шаблон з оформленим Telegram-текстом, емодзі, вкладеннями та наліпками. Сам текст пише Codex. Не надсилає повідомлення.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "StoredFile": {
+            "additionalProperties": false,
+            "properties": {
+              "storage": {
+                "enum": [
+                  "template",
+                  "auto",
+                  "import"
+                ],
+                "title": "Storage",
+                "type": "string"
+              },
+              "stored_filename": {
+                "minLength": 1,
+                "title": "Stored Filename",
+                "type": "string"
+              },
+              "filename": {
+                "minLength": 1,
+                "title": "Filename",
+                "type": "string"
+              },
+              "type": {
+                "default": "application/octet-stream",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "storage",
+              "stored_filename",
+              "filename"
+            ],
+            "title": "StoredFile",
+            "type": "object"
+          },
+          "Upload": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "title": "Path",
+                "type": "string"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "Upload",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          },
+          "uploads": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Upload"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Uploads"
+          },
+          "stored_files": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/StoredFile"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stored Files"
+          },
+          "stickers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stickers"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "create_templateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Змінити шаблон. Невказані текст, назва, наліпки й файли зберігаються. keep_file_ids задає повний бажаний порядок наявних файлів; [] видаляє їх. Не надсилає повідомлення.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "StoredFile": {
+            "additionalProperties": false,
+            "properties": {
+              "storage": {
+                "enum": [
+                  "template",
+                  "auto",
+                  "import"
+                ],
+                "title": "Storage",
+                "type": "string"
+              },
+              "stored_filename": {
+                "minLength": 1,
+                "title": "Stored Filename",
+                "type": "string"
+              },
+              "filename": {
+                "minLength": 1,
+                "title": "Filename",
+                "type": "string"
+              },
+              "type": {
+                "default": "application/octet-stream",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "storage",
+              "stored_filename",
+              "filename"
+            ],
+            "title": "StoredFile",
+            "type": "object"
+          },
+          "TemplateChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Name"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Text"
+              },
+              "stickers": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Stickers"
+              },
+              "keep_file_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Keep File Ids"
+              }
+            },
+            "title": "TemplateChanges",
+            "type": "object"
+          },
+          "Upload": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "title": "Path",
+                "type": "string"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "Upload",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "changes": {
+            "$ref": "#/$defs/TemplateChanges"
+          },
+          "uploads": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Upload"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Uploads"
+          },
+          "stored_files": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/StoredFile"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stored Files"
+          }
+        },
+        "required": [
+          "template_id",
+          "changes"
+        ],
+        "title": "update_templateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "duplicate_template",
+      "description": "Скопіювати шаблон разом із файлами та наліпками; за потреби замінити текст.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Text"
+          }
+        },
+        "required": [
+          "template_id",
+          "name"
+        ],
+        "title": "duplicate_templateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_template",
+      "description": "Видалити шаблон і його вкладення за явним запитом.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "template_id"
+        ],
+        "title": "delete_templateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "polish_text",
+      "description": "Викликати Magic-редактор School Manager через налаштований Google AI. context=message/template/auto_message. Для власного написання Codex цей виклик не потрібний.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "context": {
+            "default": "message",
+            "title": "Context",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "polish_textArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "РЕАЛЬНО надіслати повідомлення у точно визначені group_ids за запитом користувача. Текст/фото/відео/GIF/документи/наліпки. Повертає результат кожного чату. При тайм-ауті не повторювати автоматично: чинний API не має постійного ключа повтору.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "$defs": {
+          "StoredFile": {
+            "additionalProperties": false,
+            "properties": {
+              "storage": {
+                "enum": [
+                  "template",
+                  "auto",
+                  "import"
+                ],
+                "title": "Storage",
+                "type": "string"
+              },
+              "stored_filename": {
+                "minLength": 1,
+                "title": "Stored Filename",
+                "type": "string"
+              },
+              "filename": {
+                "minLength": 1,
+                "title": "Filename",
+                "type": "string"
+              },
+              "type": {
+                "default": "application/octet-stream",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "storage",
+              "stored_filename",
+              "filename"
+            ],
+            "title": "StoredFile",
+            "type": "object"
+          },
+          "Upload": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "title": "Path",
+                "type": "string"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "Upload",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "group_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "uploads": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Upload"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Uploads"
+          },
+          "stored_files": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/StoredFile"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stored Files"
+          },
+          "stickers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stickers"
+          }
+        },
+        "required": [
+          "group_ids"
+        ],
+        "title": "send_messageArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "send_template",
+      "description": "РЕАЛЬНО надіслати збережений шаблон з усіма вкладеннями/наліпками у вибрані чати. text необов'язково замінює текст лише цієї відправки.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "group_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Text"
+          }
+        },
+        "required": [
+          "template_id",
+          "group_ids"
+        ],
+        "title": "send_templateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_scheduled_messages",
+      "description": "Знайти автоповідомлення; показує повтори, sent_count, активність і Telegram-планування. Збережено локально не означає доставлено.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Group Id"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Active"
+          }
+        },
+        "title": "list_scheduled_messagesArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_scheduled_message",
+      "description": "Запланувати РЕАЛЬНЕ повідомлення: український день тижня або 'щодня', HH:MM у локальному часі програми. 1=одна відправка,0=безлімітні повтори. Довільна календарна дата не підтримується. Не повторювати створення після тайм-ауту без перевірки списку.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "$defs": {
+          "StoredFile": {
+            "additionalProperties": false,
+            "properties": {
+              "storage": {
+                "enum": [
+                  "template",
+                  "auto",
+                  "import"
+                ],
+                "title": "Storage",
+                "type": "string"
+              },
+              "stored_filename": {
+                "minLength": 1,
+                "title": "Stored Filename",
+                "type": "string"
+              },
+              "filename": {
+                "minLength": 1,
+                "title": "Filename",
+                "type": "string"
+              },
+              "type": {
+                "default": "application/octet-stream",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "storage",
+              "stored_filename",
+              "filename"
+            ],
+            "title": "StoredFile",
+            "type": "object"
+          },
+          "Upload": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "title": "Path",
+                "type": "string"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "Upload",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "send_day": {
+            "title": "Send Day",
+            "type": "string"
+          },
+          "send_time": {
+            "title": "Send Time",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "repeat_count": {
+            "default": 1,
+            "title": "Repeat Count",
+            "type": "integer"
+          },
+          "uploads": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Upload"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Uploads"
+          },
+          "stored_files": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/StoredFile"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stored Files"
+          },
+          "stickers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stickers"
+          }
+        },
+        "required": [
+          "group_id",
+          "send_day",
+          "send_time"
+        ],
+        "title": "create_scheduled_messageArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "schedule_template",
+      "description": "Запланувати вміст шаблону з вкладеннями/наліпками у вибраний чат на день тижня й час. Не змінює шаблон.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "send_day": {
+            "title": "Send Day",
+            "type": "string"
+          },
+          "send_time": {
+            "title": "Send Time",
+            "type": "string"
+          },
+          "repeat_count": {
+            "default": 1,
+            "title": "Repeat Count",
+            "type": "integer"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Text"
+          }
+        },
+        "required": [
+          "template_id",
+          "group_id",
+          "send_day",
+          "send_time"
+        ],
+        "title": "schedule_templateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_scheduled_message",
+      "description": "Змінити тільки текст, день, час або кількість повторів існуючого автоповідомлення. Вкладення, наліпки й група зберігаються за правилами чинного API.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "$defs": {
+          "ScheduledChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Message"
+              },
+              "send_time": {
+                "anyOf": [
+                  {
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Send Time"
+              },
+              "send_day": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Send Day"
+              },
+              "repeat_count": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Repeat Count"
+              }
+            },
+            "title": "ScheduledChanges",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          },
+          "changes": {
+            "$ref": "#/$defs/ScheduledChanges"
+          }
+        },
+        "required": [
+          "message_id",
+          "changes"
+        ],
+        "title": "update_scheduled_messageArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_scheduled_message_active",
+      "description": "Увімкнути/призупинити конкретне автоповідомлення. Якщо потрібний стан уже встановлено, toggle не викликається.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          },
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message_id",
+          "active"
+        ],
+        "title": "set_scheduled_message_activeArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_scheduled_message",
+      "description": "Видалити автоповідомлення через чинний механізм скасування. Помилки зовнішнього скасування можуть бути в журналі; локальне видалення не доводить результат у Telegram.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_id"
+        ],
+        "title": "delete_scheduled_messageArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "schedule_all_active_messages",
+      "description": "Повторно поставити активні автоповідомлення у планування Telegram за явним запитом. Не є перевіркою стану; може планувати багато відправок.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "schedule_all_active_messagesArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_report_settings",
+      "description": "Прочитати промпт, модель, автозвіти, затримки, супровідні тексти й тестовий режим. API-ключ не повертається.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "get_report_settingsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_report_settings",
+      "description": "Змінити ТІЛЬКИ вказані налаштування автозвітів. prompt_template — повний новий промпт. Незазначені параметри й API-ключ зберігаються. Увімкнення автозвітів активує чинний планувальник.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "ReportSettingsChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "google_ai_model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Google Ai Model"
+              },
+              "prompt_template": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Prompt Template"
+              },
+              "auto_reports_enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Auto Reports Enabled"
+              },
+              "report_delay_minutes": {
+                "anyOf": [
+                  {
+                    "maximum": 240,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Report Delay Minutes"
+              },
+              "report_notifications_enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Report Notifications Enabled"
+              },
+              "report_notification_delay_minutes": {
+                "anyOf": [
+                  {
+                    "maximum": 240,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Report Notification Delay Minutes"
+              },
+              "absent_followup_enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Absent Followup Enabled"
+              },
+              "absent_followup_schedule_mode": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "after_report",
+                      "before_next_lesson"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Absent Followup Schedule Mode"
+              },
+              "absent_followup_delay_minutes": {
+                "anyOf": [
+                  {
+                    "maximum": 10080,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Absent Followup Delay Minutes"
+              },
+              "absent_followup_before_lesson_time": {
+                "anyOf": [
+                  {
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Absent Followup Before Lesson Time"
+              },
+              "absent_followup_template": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Absent Followup Template"
+              },
+              "no_absents_followup_template": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "No Absents Followup Template"
+              },
+              "default_duration_minutes": {
+                "anyOf": [
+                  {
+                    "maximum": 360,
+                    "minimum": 30,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Default Duration Minutes"
+              },
+              "test_mode": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Test Mode"
+              }
+            },
+            "title": "ReportSettingsChanges",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "changes": {
+            "$ref": "#/$defs/ReportSettingsChanges"
+          }
+        },
+        "required": [
+          "changes"
+        ],
+        "title": "update_report_settingsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "reset_report_prompt",
+      "description": "Повернути стандартний промпт звітів за запитом користувача; інші налаштування зберігаються.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "reset_report_promptArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_pending_reports",
+      "description": "Прочитати чинну чергу невідправлених і ручних звітів; нічого не надсилає.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "group": {
+            "default": "",
+            "title": "Group",
+            "type": "string"
+          }
+        },
+        "title": "list_pending_reportsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_report_runs",
+      "description": "Журнал звітів із текстом і помилками. Фільтри застосовуються тільки до останніх limit записів (1–500), не до всієї історії. run_id дозволяє прочитати конкретний старий запис.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "limit": {
+            "default": 100,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "group": {
+            "default": "",
+            "title": "Group",
+            "type": "string"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Id"
+          }
+        },
+        "title": "list_report_runsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "prepare_report_context",
+      "description": "Перевірити тему/дату/відсутніх перед звітом через чинний preview і Logika. Може оновити дані заняття/знімок; НЕ генерує фінальний AI-текст і нічого не надсилає.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          },
+          "lesson_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lesson Date"
+          },
+          "absents": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Absents"
+          },
+          "review_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Review Run Id"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ],
+        "title": "prepare_report_contextArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "send_report",
+      "description": "РЕАЛЬНО згенерувати й надіслати звіт штатним механізмом. Зберігає перевірки заняття, відвідування, дублів і доставки. absents=null використовує чинні дані Logika; test=null зберігає режим налаштувань. test=true теж надсилає Telegram-повідомлення. Без автоматичних повторів після тайм-ауту.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          },
+          "lesson_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lesson Date"
+          },
+          "absents": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Absents"
+          },
+          "test": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Test"
+          },
+          "review_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Review Run Id"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ],
+        "title": "send_reportArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "prepare_report_resend",
+      "description": "Перевірити контекст повторного звіту за історичну дату через чинний resend-preview. Нічого не надсилає; може звіряти дані з Logika.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "prepare_report_resendArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "resend_report",
+      "description": "РЕАЛЬНО повторно відправити історичний звіт штатним механізмом після явного запиту. Новій дії — новий UUID request_id, повтору тієї самої дії — той самий UUID. Не обходить перевірки відвідування/невизначеної доставки.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "absents": {
+            "default": "",
+            "title": "Absents",
+            "type": "string"
+          },
+          "use_logika_absents": {
+            "default": true,
+            "title": "Use Logika Absents",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id",
+          "request_id"
+        ],
+        "title": "resend_reportArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "run_due_reports",
+      "description": "Запустити чинну обробку прострочених автозвітів за ЯВНИМ запитом на відправлення. Може реально надіслати кілька звітів. Для перевірки без відправлення використовуйте check_reports/list_pending_reports.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "run_due_reportsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_report_workbook",
+      "description": "Прочитати робочий розклад і перелік курсів. Не імпортує та не надсилає дані.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "get_report_workbookArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_lesson",
+      "description": "Додати рядок розкладу БАТЬКІВСЬКИХ ЗВІТІВ, не особистого календаря. Обов'язковий group_name. partial=true: рядок уже створений, завершіть через update_lesson.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "LessonChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "group_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Group Name"
+              },
+              "telegram_group_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Telegram Group Id"
+              },
+              "day": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Day"
+              },
+              "start_time": {
+                "anyOf": [
+                  {
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start Time"
+              },
+              "course": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Course"
+              },
+              "lesson_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Code"
+              },
+              "lesson_count": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Count"
+              },
+              "lesson_title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Title"
+              },
+              "lesson_topic_detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Topic Detail"
+              },
+              "lesson_report_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Report Text"
+              },
+              "topic": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic"
+              },
+              "duration_minutes": {
+                "anyOf": [
+                  {
+                    "maximum": 1440,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Duration Minutes"
+              },
+              "last_report_date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Report Date"
+              },
+              "absents": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Absents"
+              },
+              "row_order": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Row Order"
+              }
+            },
+            "title": "LessonChanges",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "fields": {
+            "$ref": "#/$defs/LessonChanges"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "create_lessonArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_lesson",
+      "description": "Змінити конкретний рядок розкладу звітів чинною операцією. Інші поля зберігаються. last_report_date — локальний маркер, його зміна не підтверджує доставки.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "LessonChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "group_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Group Name"
+              },
+              "telegram_group_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Telegram Group Id"
+              },
+              "day": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Day"
+              },
+              "start_time": {
+                "anyOf": [
+                  {
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start Time"
+              },
+              "course": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Course"
+              },
+              "lesson_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Code"
+              },
+              "lesson_count": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Count"
+              },
+              "lesson_title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Title"
+              },
+              "lesson_topic_detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Topic Detail"
+              },
+              "lesson_report_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Report Text"
+              },
+              "topic": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Topic"
+              },
+              "duration_minutes": {
+                "anyOf": [
+                  {
+                    "maximum": 1440,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Duration Minutes"
+              },
+              "last_report_date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Report Date"
+              },
+              "absents": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Absents"
+              },
+              "row_order": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Row Order"
+              }
+            },
+            "title": "LessonChanges",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          },
+          "changes": {
+            "$ref": "#/$defs/LessonChanges"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "changes"
+        ],
+        "title": "update_lessonArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "postpone_lesson",
+      "description": "Перенести конкретне заняття розкладу звітів на дату YYYY-MM-DD і HH:MM. Не змінює особисту подію календаря.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "clock": {
+            "title": "Clock",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "day",
+          "clock"
+        ],
+        "title": "postpone_lessonArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "cancel_lesson_postponement",
+      "description": "Скасувати перенесення конкретного заняття розкладу звітів.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ],
+        "title": "cancel_lesson_postponementArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_lesson_paused",
+      "description": "Поставити заняття/групу на паузу для звітів або відновити через чинну перевірку планувальника.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          },
+          "paused": {
+            "title": "Paused",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "paused"
+        ],
+        "title": "set_lesson_pausedArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_lesson",
+      "description": "Видалити рядок розкладу звітів за явним запитом; не видаляє Telegram-чат.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ],
+        "title": "delete_lessonArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_report_mappings",
+      "description": "Прочитати наявні прив'язки навчальних груп до чатів для звітів.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "list_report_mappingsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_report_mapping",
+      "description": "Змінити чинну прив'язку звітів для назви навчальної групи; null прибирає її. Не додає нових ролей чатів.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "lesson_group_name": {
+            "title": "Lesson Group Name",
+            "type": "string"
+          },
+          "telegram_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Telegram Group Id"
+          }
+        },
+        "required": [
+          "lesson_group_name"
+        ],
+        "title": "set_report_mappingArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_courses",
+      "description": "Переглянути/знайти курси бази звітів.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "title": "list_coursesArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_course",
+      "description": "Прочитати курс з усіма темами/матеріалами уроків без зміни курсу.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "course_id": {
+            "title": "Course Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "course_id"
+        ],
+        "title": "get_courseArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_course",
+      "description": "Створити курс у локальній базі тем для звітів.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "create_courseArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_course",
+      "description": "Перейменувати/впорядкувати курс. Використовує чинне узгодження назви в пов'язаних записах.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "course_id": {
+            "title": "Course Id",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "row_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Row Order"
+          }
+        },
+        "required": [
+          "course_id"
+        ],
+        "title": "update_courseArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_course",
+      "description": "Видалити курс із його локальними темами за явним запитом.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "course_id": {
+            "title": "Course Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "course_id"
+        ],
+        "title": "delete_courseArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_course_lesson",
+      "description": "Додати тему/урок курсу: номер, код, модуль, назва, матеріал звіту, примітки.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "CourseLessonCreate": {
+            "additionalProperties": false,
+            "properties": {
+              "lesson_count": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Count"
+              },
+              "lesson_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Code"
+              },
+              "module": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Module"
+              },
+              "lesson_title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Title"
+              },
+              "lesson_topic_detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Topic Detail"
+              },
+              "lesson_report_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Report Text"
+              },
+              "notes": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Notes"
+              }
+            },
+            "title": "CourseLessonCreate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "course_id": {
+            "title": "Course Id",
+            "type": "integer"
+          },
+          "fields": {
+            "$ref": "#/$defs/CourseLessonCreate"
+          }
+        },
+        "required": [
+          "course_id",
+          "fields"
+        ],
+        "title": "create_course_lessonArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_course_lesson",
+      "description": "Змінити тільки зазначені поля теми уроку в базі курсів.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "$defs": {
+          "CourseLessonChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "lesson_count": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Count"
+              },
+              "lesson_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Code"
+              },
+              "module": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Module"
+              },
+              "lesson_title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Title"
+              },
+              "lesson_topic_detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Topic Detail"
+              },
+              "lesson_report_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lesson Report Text"
+              },
+              "notes": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Notes"
+              },
+              "row_order": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Row Order"
+              }
+            },
+            "title": "CourseLessonChanges",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "course_lesson_id": {
+            "title": "Course Lesson Id",
+            "type": "integer"
+          },
+          "changes": {
+            "$ref": "#/$defs/CourseLessonChanges"
+          }
+        },
+        "required": [
+          "course_lesson_id",
+          "changes"
+        ],
+        "title": "update_course_lessonArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_course_lesson",
+      "description": "Видалити конкретну тему уроку з бази курсу.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "course_lesson_id": {
+            "title": "Course Lesson Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "course_lesson_id"
+        ],
+        "title": "delete_course_lessonArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "sync_report_source",
+      "description": "Оновити вбудовану базу тем/звітів із чинного джерела. Може змінити локальні матеріали; не відправляє звіти.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "sync_report_sourceArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "import_schedule",
+      "description": "Імпортувати розклад штатним механізмом. Рівно одне: доступна Google Таблиця (spreadsheet_url) або абсолютний шлях XLSX (xlsx_path). Змінює розклад, не є попереднім переглядом.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "spreadsheet_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Spreadsheet Url"
+          },
+          "xlsx_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Xlsx Path"
+          }
+        },
+        "title": "import_scheduleArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "export_report_workbook",
+      "description": "Експортувати розклад/базу звітів у XLSX. destination — новий абсолютний шлях; без нього файл зберігається в output/mcp. Не змінює таблиці.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Destination"
+          }
+        },
+        "title": "export_report_workbookArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_application_info",
+      "description": "Прочитати стан вибраного розділу School Manager. telegram читає збережений стан без команди перепідключення. Секретні поля не повертаються.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "section": {
+            "default": "overview",
+            "enum": [
+              "overview",
+              "startup",
+              "version",
+              "notifications",
+              "autostart",
+              "cache",
+              "interface",
+              "telegram",
+              "logika",
+              "google",
+              "update_progress"
+            ],
+            "title": "Section",
+            "type": "string"
+          }
+        },
+        "title": "get_application_infoArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_logs",
+      "description": "Прочитати останні події; фільтри застосовуються лише до отриманих limit записів (1–500). Не є повною історією чи командою відправки.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "limit": {
+            "default": 100,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "level": {
+            "default": "",
+            "title": "Level",
+            "type": "string"
+          },
+          "module": {
+            "default": "",
+            "title": "Module",
+            "type": "string"
+          },
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "title": "get_logsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "clear_logs",
+      "description": "Очистити журнал подій за явним запитом; історію звітів не видаляє.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "clear_logsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_application_setting",
+      "description": "Задати явний стан автозапуску, системних сповіщень або згортання меню.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "setting": {
+            "enum": [
+              "autostart",
+              "notifications",
+              "sidebar_collapsed"
+            ],
+            "title": "Setting",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "setting",
+          "enabled"
+        ],
+        "title": "set_application_settingArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "cleanup_cache",
+      "description": "Очистити відповідний кеш штатною операцією. Не є видаленням бази/шаблонів.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "temporary_files",
+              "stickers"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "cleanup_cacheArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "open_data_folder",
+      "description": "Відкрити папку даних School Manager у файловому менеджері.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {},
+        "title": "open_data_folderArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "telegram_session",
+      "description": "Керувати наявною Telegram-сесією штатними командами. disconnect від'єднує тимчасово; logout_full видаляє авторизацію; reset_credentials повертає чинні стандартні параметри. Лише за відповідним запитом користувача.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "action": {
+            "enum": [
+              "reconnect",
+              "disconnect",
+              "logout_full",
+              "reset_credentials"
+            ],
+            "title": "Action",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "telegram_sessionArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_authentication_help",
+      "description": "Пояснити вхід у зовнішній сервіс без передачі паролів/кодів/ключів у чат. Для Google початок OAuth доступний через google_calendar(action=connect).",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "service": {
+            "enum": [
+              "telegram",
+              "google",
+              "logika",
+              "google_ai"
+            ],
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service"
+        ],
+        "title": "get_authentication_helpArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "google_calendar",
+      "description": "Керувати чинною Google Calendar інтеграцією: OAuth, список календарів, календар School Manager, синхронізація, видимість, від'єднання. connect потребує дії користувача у браузері. Не обходить права read-only.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "action": {
+            "enum": [
+              "connect",
+              "cancel",
+              "disconnect",
+              "discover",
+              "ensure_calendar",
+              "sync",
+              "visibility"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "calendar_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Calendar Id"
+          },
+          "visible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Visible"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "google_calendarArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "logika",
+      "description": "Використати чинну Logika інтеграцію: синхронізація розкладу, отримання відсутніх, налаштування автоматизації, від'єднання. Не змінює оцінки/відвідування у Logika.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "action": {
+            "enum": [
+              "sync",
+              "fetch_absents",
+              "settings",
+              "disconnect"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lesson Id"
+          },
+          "auto_sync_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Auto Sync Enabled"
+          },
+          "auto_fetch_absents": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Auto Fetch Absents"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "logikaArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "import_attachment_url",
+      "description": "Імпортувати доступний прямий HTTP/HTTPS-файл у штатне сховище застосунку для подальшого використання. Повертає storage/stored_filename.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "import_attachment_urlArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "download_attachment",
+      "description": "Отримати збережене вкладення як локальний файл для перегляду; destination — новий абсолютний шлях.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "storage": {
+            "enum": [
+              "template",
+              "auto",
+              "import"
+            ],
+            "title": "Storage",
+            "type": "string"
+          },
+          "stored_filename": {
+            "title": "Stored Filename",
+            "type": "string"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Destination"
+          }
+        },
+        "required": [
+          "storage",
+          "stored_filename"
+        ],
+        "title": "download_attachmentArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "open_attachment",
+      "description": "Відкрити конкретне вкладення стандартною програмою комп'ютера.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "storage": {
+            "enum": [
+              "template",
+              "auto",
+              "import"
+            ],
+            "title": "Storage",
+            "type": "string"
+          },
+          "stored_filename": {
+            "title": "Stored Filename",
+            "type": "string"
+          }
+        },
+        "required": [
+          "storage",
+          "stored_filename"
+        ],
+        "title": "open_attachmentArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "open_uploaded_file",
+      "description": "Передати вказаний локальний файл у штатний кеш і відкрити стандартною програмою комп'ютера. Потрібен абсолютний шлях.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "upload_path": {
+            "title": "Upload Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_path"
+        ],
+        "title": "open_uploaded_fileArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "export_application_file",
+      "description": "Зберегти штатний діагностичний файл або копію .db. database_backup — чинна копія тільки бази, без вкладень/віджетів; не повний архів і не новий механізм резервування. Файл може містити особисті дані; повертайте шлях, не його вміст.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "diagnostics",
+              "database_backup"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Destination"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "export_application_fileArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "restore_database",
+      "description": "Відновити всю локальну базу штатною операцією ЛИШЕ за явним запитом на відновлення. Потрібен .db. Використовує наявну поведінку програми; після успіху потрібен її перезапуск. Не створює новий backup-механізм.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "backup_path": {
+            "title": "Backup Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backup_path"
+        ],
+        "title": "restore_databaseArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "application_update",
+      "description": "Завантажити/встановити вже опубліковане оновлення. download НЕ запускає інсталятор; install завершує програму й запускає встановлення лише за явним запитом. Не збирає і не публікує реліз.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "action": {
+            "enum": [
+              "download",
+              "install"
+            ],
+            "title": "Action",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "application_updateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_sticker_packs",
+      "description": "Переглянути доступні набори або конкретний набір Telegram-наліпок; emoji фільтрує елементи отриманого набору.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "short_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Short Name"
+          },
+          "emoji": {
+            "default": "",
+            "title": "Emoji",
+            "type": "string"
+          }
+        },
+        "title": "list_sticker_packsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "sticker_cache",
+      "description": "Перевірити стан кешу наліпок або запустити штатний прогрів (warmup=true).",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "warmup": {
+            "default": false,
+            "title": "Warmup",
+            "type": "boolean"
+          }
+        },
+        "title": "sticker_cacheArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "download_sticker",
+      "description": "Отримати прев'ю/анімацію/файл конкретної наліпки як локальний артефакт.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "thumb",
+            "enum": [
+              "thumb",
+              "animation",
+              "file"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mime_type": {
+            "default": "image/webp",
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "pack": {
+            "default": "",
+            "title": "Pack",
+            "type": "string"
+          },
+          "document_id": {
+            "default": "",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Destination"
+          }
+        },
+        "required": [
+          "file_id"
+        ],
+        "title": "download_stickerArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "open_application_view",
+      "description": "Відкрити підтримуваний розділ штатним schoolmanager-протоколом. Не керує вікном/віджетами й не додає desktop-міст. Протокол має бути зареєстрований програмою.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "view": {
+            "enum": [
+              "overview",
+              "reports",
+              "report_runs",
+              "calendar",
+              "overdue",
+              "reminders",
+              "scheduled"
+            ],
+            "title": "View",
+            "type": "string"
+          },
+          "record_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Record Id"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Day"
+          }
+        },
+        "required": [
+          "view"
+        ],
+        "title": "open_application_viewArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "delete_item",
+      "description": "Перемістити задачу/подію в кошик штатною операцією з поточною revision. Для серії це ВСЯ серія. Може синхронізувати видалення в Google.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "item_id",
+          "revision"
+        ],
+        "title": "delete_itemArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "restore_item",
+      "description": "Відновити запис із кошика з актуальною revision.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "item_id",
+          "revision"
+        ],
+        "title": "restore_itemArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_item_color",
+      "description": "Задати колір #RRGGBB або null для стандартного. Зберігає чинні обмеження read-only/Google.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Color"
+          }
+        },
+        "required": [
+          "item_id",
+          "revision"
+        ],
+        "title": "set_item_colorArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "remove_reminder",
+      "description": "Скасувати конкретне системне/особисте Telegram-нагадування через чинну чергу скасування.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "reminder_id": {
+            "title": "Reminder Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "reminder_id"
+        ],
+        "title": "remove_reminderArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "task_attachment",
+      "description": "Додати/отримати/видалити файл задачі. add потребує абсолютний upload_path, download/delete — attachment_id від get_item. Не змінює інші вкладення.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "add",
+              "download",
+              "delete"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "upload_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Upload Path"
+          },
+          "attachment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attachment Id"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Destination"
+          }
+        },
+        "required": [
+          "item_id",
+          "action"
+        ],
+        "title": "task_attachmentArguments",
+        "type": "object"
+      }
+    }
+  ]
+}

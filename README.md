@@ -33,6 +33,8 @@ The app contains the main working areas:
 
 ## Tech Stack
 
+Local Codex integration: [School Manager MCP setup and tools](integrations/codex_mcp/README.md).
+
 | Layer | Technology |
 | --- | --- |
 | Desktop shell | Python, pywebview, pystray |

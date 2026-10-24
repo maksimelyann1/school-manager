@@ -1,0 +1,3 @@
+# Deliberately separate from backend/requirements.txt: the SDK needs newer Pydantic/Starlette.
+mcp==1.30.0
+tzdata==2026.2

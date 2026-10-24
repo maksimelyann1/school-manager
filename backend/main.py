@@ -16,6 +16,7 @@ from routers import system
 from routers import tasks
 from routers import planner_google
 from routers import widgets
+from routers import assistant
 from pyrogram_client import pyrogram_manager
 from telegram_credentials import get_effective_credentials, stored_credentials_match_default
 
@@ -147,7 +148,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Менеджер Телеграм Груп",
     description="Веб-додаток для керування навчальним процесом (Pyrogram)",
-    version="2.13.0",
+    version="2.14.0",
     lifespan=lifespan
 )
 
@@ -190,6 +191,7 @@ app.include_router(logika.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(planner_google.router, prefix="/api")
 app.include_router(widgets.router, prefix="/api")
+app.include_router(assistant.router, prefix="/api")
 
 
 import traceback
@@ -265,7 +267,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Менеджер Телеграм Груп API v2.13 (Pyrogram)",
+            "message": "Менеджер Телеграм Груп API v2.14 (Pyrogram)",
             "docs": "/docs",
             "warning": "Фронтенд не знайдено (немає папки dist)"
         }
